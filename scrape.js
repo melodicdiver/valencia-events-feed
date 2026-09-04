@@ -2,96 +2,173 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-// Curated dictionary of iconic Valencia art venues, museums, and street addresses
-const KNOWN_VENUES = [
-  { pattern: /reina 121|la reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
-  { pattern: /\bivam\b|julio gonz[aá]lez/i, name: 'IVAM', address: 'Guillem de Castro, 118, 46003 València' },
-  { pattern: /belles arts|bellas artes|san p[ií]o v|rubens/i, name: 'Museu de Belles Arts de València', address: 'Carrer de Sant Pius V, 9, 46010 València' },
-  { pattern: /\bmuvim\b/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
-  { pattern: /fundaci[oó] bancaixa|fundaci[oó]n bancaja/i, name: 'Fundació Bancaixa', address: 'Plaça de Tetuan, 23, 46003 València' },
-  { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
-  { pattern: /caixaforum/i, name: 'CaixaForum València', address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València' },
-  { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
-  { pattern: /almud[ií]n|l’almod[ií]/i, name: 'L’Almodí', address: 'Plaça de Sant Lluís Bertran, 2, 46003 València' },
-  { pattern: /museu de cer[aà]mica|marqu[eé]s de dos aguas/i, name: 'Museu Nacional de Ceràmica', address: 'Carrer del Poeta Querol, 2, 46002 València' },
-  { pattern: /drassanes|atarazanas|la mar [eè]pica/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
-  { pattern: /l’etno|museu valenci[aà] d’etnologia/i, name: 'L’Etno', address: 'Carrer de la Corona, 36, 46003 València' },
-  { pattern: /prehist[oò]ria/i, name: 'Museu de Prehistòria de València', address: 'Carrer de la Corona, 36, 46003 València' },
-  { pattern: /palau de les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
-  { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
-  { pattern: /jard[ií] bot[aà]nic|l’albufera/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
-  { pattern: /la mutant/i, name: 'La Mutant', address: 'Carrer de Joan Verdaguer, 22, 46024 València' },
-  { pattern: /las naves|valencia se ilustra/i, name: 'Las Naves', address: 'Carrer de Joan Verdaguer, 16, 46024 València' },
-  { pattern: /teatre el musical|tem\b/i, name: 'Teatre El Musical (TEM)', address: 'Plaça del Rosari, 3, 46011 València' },
-  { pattern: /casa museu benlliure/i, name: 'Casa Museu Benlliure', address: 'Carrer de Blanqueries, 23, 46003 València' },
-  { pattern: /camilo sesto/i, name: 'Museu Camilo Sesto', address: 'Alcoi' },
-  { pattern: /ateneo mercantil|frida kahlo/i, name: 'Ateneo Mercantil de Valencia', address: 'Plaça de l’Ajuntament, 18, 46002 València' },
-  { pattern: /rector peset/i, name: 'Col·legi Major Rector Peset', address: 'Forn de Sant Nicolau, 4, 46001 València' },
-  { pattern: /centre del carme|cccc|consorci de museus/i, name: 'Centre del Carme (CCCC)', address: 'Carrer del Museu, 2, 46003 València' },
-];
+// Official dictionary for AU-Agenda venue acronyms and shorthand names
+const VENUE_MAP = {
+  mubav: {
+    name: 'Museu de Belles Arts de València (MuBAV)',
+    address: 'Carrer de Sant Pius V, 9, 46010 València',
+  },
+  cccc: {
+    name: 'Centre del Carme (CCCC)',
+    address: 'Carrer del Museu, 2, 46003 València',
+  },
+  ivam: {
+    name: 'IVAM',
+    address: 'Guillem de Castro, 118, 46003 València',
+  },
+  "l'etno": {
+    name: "L'ETNO (Museu Valencià d'Etnologia)",
+    address: 'Carrer de la Corona, 36, 46003 València',
+  },
+  letno: {
+    name: "L'ETNO (Museu Valencià d'Etnologia)",
+    address: 'Carrer de la Corona, 36, 46003 València',
+  },
+  etno: {
+    name: "L'ETNO (Museu Valencià d'Etnologia)",
+    address: 'Carrer de la Corona, 36, 46003 València',
+  },
+  'sala municipal': {
+    name: "Sala Municipal d'Exposicions",
+    address: "Carrer de l'Arquebisbe Mayoral, 1, 46002 València",
+  },
+  muvim: {
+    name: 'MuVIM',
+    address: 'Carrer de Quevedo, 10, 46001 València',
+  },
+  'reina 121': {
+    name: 'Espai La Reina 121',
+    address: 'Carrer de la Reina, 121, 46011 València',
+  },
+  'la reina 121': {
+    name: 'Espai La Reina 121',
+    address: 'Carrer de la Reina, 121, 46011 València',
+  },
+  bancaixa: {
+    name: 'Fundació Bancaixa',
+    address: 'Plaça de Tetuan, 23, 46003 València',
+  },
+  'fundacio bancaixa': {
+    name: 'Fundació Bancaixa',
+    address: 'Plaça de Tetuan, 23, 46003 València',
+  },
+  'fundacion bancaja': {
+    name: 'Fundació Bancaixa',
+    address: 'Plaça de Tetuan, 23, 46003 València',
+  },
+  'bombas gens': {
+    name: 'Bombas Gens Centre d’Arts Digitals',
+    address: 'Avinguda de Burjassot, 54, 46009 València',
+  },
+  caixaforum: {
+    name: 'CaixaForum València',
+    address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València',
+  },
+  'la nau': {
+    name: 'La Nau Centre Cultural',
+    address: 'Carrer de la Universitat, 2, 46003 València',
+  },
+  'botànic': {
+    name: 'Jardí Botànic UV',
+    address: 'Carrer de Quart, 80, 46008 València',
+  },
+  botanic: {
+    name: 'Jardí Botànic UV',
+    address: 'Carrer de Quart, 80, 46008 València',
+  },
+  'jardi botanic': {
+    name: 'Jardí Botànic UV',
+    address: 'Carrer de Quart, 80, 46008 València',
+  },
+  'ateneo mercantil': {
+    name: 'Ateneo Mercantil de Valencia',
+    address: 'Plaça de l’Ajuntament, 18, 46002 València',
+  },
+  ateneo: {
+    name: 'Ateneo Mercantil de Valencia',
+    address: 'Plaça de l’Ajuntament, 18, 46002 València',
+  },
+  'las naves': {
+    name: 'Las Naves',
+    address: 'Carrer de Joan Verdaguer, 16, 46024 València',
+  },
+  'la mutant': {
+    name: 'La Mutant',
+    address: 'Carrer de Joan Verdaguer, 22, 46024 València',
+  },
+  tem: {
+    name: 'Teatre El Musical (TEM)',
+    address: 'Plaça del Rosari, 3, 46011 València',
+  },
+  'teatre el musical': {
+    name: 'Teatre El Musical (TEM)',
+    address: 'Plaça del Rosari, 3, 46011 València',
+  },
+  drassanes: {
+    name: 'Drassanes del Grau',
+    address: 'Plaça de Joan Pau II, 46024 València',
+  },
+  'drassanes del grau': {
+    name: 'Drassanes del Grau',
+    address: 'Plaça de Joan Pau II, 46024 València',
+  },
+  almodi: {
+    name: "L'Almodí",
+    address: 'Plaça de Sant Lluís Bertran, 2, 46003 València',
+  },
+  'camilo sesto': {
+    name: 'Museu Camilo Sesto',
+    address: 'Carrer Verge dels Desemparats, 46003 Alcoi',
+  },
+  'rector peset': {
+    name: 'Col·legi Major Rector Peset',
+    address: 'Forn de Sant Nicolau, 4, 46001 València',
+  },
+};
 
 /**
- * Strips outer template chrome (header, nav, footer, sidebar, widgets)
+ * Extracts the date line and the venue/address line located directly under it
  */
-function cleanArticleContent(html) {
-  if (!html) return '';
-  return html
-    .replace(/<head[\s\S]*?<\/head>/gi, '')
-    .replace(/<header[\s\S]*?<\/header>/gi, '')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-    .replace(/<div[^>]*class=["'][^"']*(?:sidebar|widget|menu|related|footer)[^"']*["'][\s\S]*?<\/div>/gi, '');
+function extractAuArticleHeader(html) {
+  if (!html) return null;
+
+  const textWithNewlines = html
+    .replace(/<(?:br|\/p|\/div|\/h\d|li)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#8217;/g, "'")
+    .replace(/&#8216;/g, "'")
+    .replace(/&#038;/g, '&')
+    .replace(/&amp;/g, '&');
+
+  const lines = textWithNewlines
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  // Look for the date line (e.g., "FINS AL DIUMENGE 13/9", "HASTA EL DOMINGO 4/10")
+  const dateIdx = lines.findIndex(
+    (l) => /^(?:fins|hasta|del|des de|des del)\b/i.test(l) && /\d{1,2}\/\d{1,2}/.test(l)
+  );
+
+  if (dateIdx === -1) return null;
+
+  const dateLine = lines[dateIdx];
+  const nextLine = lines[dateIdx + 1] || '';
+
+  // Venue lines are short (under 80 chars) and precede the article paragraphs
+  const venueLine = nextLine.length < 80 ? nextLine : '';
+
+  return { dateLine, venueLine };
 }
 
 /**
- * Resolves accurate venue name and address
+ * Parses numeric dates from the exact date header line
  */
-function resolveVenueInfo(cardTitle = '', cardDesc = '', rawHtml = '') {
-  const cardText = `${cardTitle} ${cardDesc}`.trim();
-
-  // 1. High-Confidence Check: card title and excerpt (0% HTML pollution)
-  for (const item of KNOWN_VENUES) {
-    if (item.pattern.test(cardText)) {
-      return { venueName: item.name, address: item.address };
-    }
-  }
-
-  // 2. Strip template chrome from the fetched article page
-  const cleanHtml = cleanArticleContent(rawHtml);
-
-  // 3. Explicit label check inside the article body (e.g., "Lloc: MuVIM", "Lugar: Ateneo")
-  const explicitMatch = cleanHtml.match(/(?:<strong>|<b>)?\s*(?:Lloc|Lugar|On|Dónde|Espai|Espacio|Sala|Sede)\s*(?:<\/strong>|<\/b>)?\s*[:：]\s*([^<.\n\r]+)/i);
-  if (explicitMatch) {
-    const rawVenue = explicitMatch[1].replace(/<[^>]+>/g, '').trim();
-    for (const item of KNOWN_VENUES) {
-      if (item.pattern.test(rawVenue)) {
-        return { venueName: item.name, address: item.address };
-      }
-    }
-    if (rawVenue.length > 2 && rawVenue.length < 50 && !/val[eè]ncia/i.test(rawVenue)) {
-      return { venueName: rawVenue, address: 'València' };
-    }
-  }
-
-  // 4. Check KNOWN_VENUES against the stripped article text
-  const cleanText = cleanHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  for (const item of KNOWN_VENUES) {
-    if (item.pattern.test(cleanText)) {
-      return { venueName: item.name, address: item.address };
-    }
-  }
-
-  return { venueName: 'València', address: 'València' };
-}
-
-/**
- * Parses numeric dates (e.g. "5/9", "4/10", "28/2/2027") from AU-Agenda
- */
-function parseAuDates(text) {
-  if (!text) return null;
+function parseAuDateLine(dateText) {
+  if (!dateText) return null;
   const currentYear = new Date().getFullYear();
-  const clean = text.replace(/\s+/g, ' ').toLowerCase();
+  const clean = dateText.replace(/\s+/g, ' ').toLowerCase();
 
   const toIso = (day, month, yearStr) => {
     const d = parseInt(day, 10);
@@ -106,8 +183,10 @@ function parseAuDates(text) {
     return isNaN(dt.getTime()) ? null : dt.toISOString();
   };
 
-  // 1. Date Range: "del dissabte 5/9 al dissabte 31/10"
-  const rangeMatch = clean.match(/(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
+  // Date range: "del dissabte 5/9 al dissabte 31/10"
+  const rangeMatch = clean.match(
+    /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
+  );
   if (rangeMatch) {
     let sYear = rangeMatch[3];
     let eYear = rangeMatch[6];
@@ -120,8 +199,10 @@ function parseAuDates(text) {
     if (eIso) return { startDate: sIso || new Date().toISOString(), endDate: eIso };
   }
 
-  // 2. Single End Date: "hasta el domingo 4/10", "fins al 13/9"
-  const endMatch = clean.match(/(?:fins al|fins el|fins|hasta el|hasta|al)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
+  // Single end date: "fins al 13/9", "hasta el domingo 4/10", "fins el 28/2/2027"
+  const endMatch = clean.match(
+    /(?:fins al|fins el|fins|hasta el|hasta|al)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
+  );
   if (endMatch) {
     let eYear = endMatch[3];
     const eMonth = parseInt(endMatch[2], 10);
@@ -132,17 +213,38 @@ function parseAuDates(text) {
     if (eIso) return { startDate: new Date().toISOString(), endDate: eIso };
   }
 
-  // 3. Ongoing start: "des del dijous 11/6"
-  const startMatch = clean.match(/(?:des del|des de|desde el|desde)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
-  if (startMatch) {
-    const sIso = toIso(startMatch[1], startMatch[2], startMatch[3]);
-    if (sIso) {
-      const eIso = new Date(new Date(sIso).getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
-      return { startDate: sIso, endDate: eIso };
-    }
+  return null;
+}
+
+/**
+ * Resolves the venue and address from the exact venue line
+ */
+function resolveVenueFromHeader(venueLine = '') {
+  if (!venueLine) return { venueName: 'València', address: 'València' };
+
+  // Structure: "L'ETNO. Corona, 36" or "MuBAV. Sant Pius V, 9"
+  const split = venueLine.match(/^([^.]+)\.\s*(.*)$/);
+  const rawVenue = (split ? split[1] : venueLine).trim();
+  const rawAddress = (split ? split[2] : '').trim();
+
+  const key = rawVenue.toLowerCase().replace(/['’]/g, "'");
+
+  if (VENUE_MAP[key]) {
+    return {
+      venueName: VENUE_MAP[key].name,
+      address: VENUE_MAP[key].address,
+    };
   }
 
-  return null;
+  // Fallback if not in dictionary
+  const formattedVenue = rawVenue.charAt(0).toUpperCase() + rawVenue.slice(1);
+  const formattedAddress = rawAddress
+    ? rawAddress.toLowerCase().includes('val')
+      ? rawAddress
+      : `${rawAddress}, València`
+    : 'València';
+
+  return { venueName: formattedVenue, address: formattedAddress };
 }
 
 async function scrapeSongkick(page) {
@@ -164,7 +266,10 @@ async function scrapeSongkick(page) {
       for (const item of items) {
         if (item['@type'] === 'MusicEvent') {
           const venue = item.location?.name || 'València';
-          const address = item.location?.address?.streetAddress || item.location?.address?.addressLocality || 'València';
+          const address =
+            item.location?.address?.streetAddress ||
+            item.location?.address?.addressLocality ||
+            'València';
           const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
           const price = offer?.price ? `${offer.price}€` : undefined;
           const img = Array.isArray(item.image) ? item.image[0] : item.image;
@@ -217,7 +322,7 @@ async function scrapeAuAgendaExpos(page, context) {
           return {
             title: titleEl ? titleEl.textContent.trim() : '',
             link: linkEl ? linkEl.href : '',
-            img: imgEl ? (imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.src || '') : '',
+            img: imgEl ? imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.src || '' : '',
             desc: descEl ? descEl.textContent.trim() : '',
           };
         })
@@ -244,9 +349,13 @@ async function scrapeAuAgendaExpos(page, context) {
       } catch (_) {}
     }
 
-    const { venueName, address } = resolveVenueInfo(card.title, card.desc, articleHtml);
+    const headerMeta = extractAuArticleHeader(articleHtml);
 
-    const parsedDates = parseAuDates(card.desc) || parseAuDates(cleanArticleContent(articleHtml));
+    // Accurate venue and address from the exact article header line
+    const { venueName, address } = resolveVenueFromHeader(headerMeta?.venueLine);
+
+    // Accurate dates from the exact article header line
+    const parsedDates = parseAuDateLine(headerMeta?.dateLine);
     const startDate = parsedDates?.startDate || now.toISOString();
     const endDate = parsedDates?.endDate || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -267,7 +376,7 @@ async function scrapeAuAgendaExpos(page, context) {
     });
   }
 
-  console.log(`Parsed ${expos.length} AU-Agenda exhibitions.`);
+  console.log(`Parsed ${expos.length} AU-Agenda exhibitions with accurate header metadata.`);
   return expos;
 }
 
