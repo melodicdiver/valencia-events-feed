@@ -59,7 +59,7 @@ function toNaturalCase(str) {
 }
 
 /**
- * Robust header extractor that catches all weekday formats and multi-line venues
+ * Header extractor that catches weekday formats and multi-line venues
  */
 function extractAuArticleHeader(html) {
   if (!html) return null;
@@ -78,8 +78,6 @@ function extractAuArticleHeader(html) {
     .map((l) => l.trim())
     .filter(Boolean);
 
-  // Matches date lines starting with prepositions OR weekdays:
-  // "DEL DIMARTS 1 AL DIUMENGE 20/9", "VIERNES 25 Y SÁBADO 26/9", "FINS AL 13/9"
   const dateIdx = lines.findIndex((l) => {
     if (!/\b\d{1,2}(?:\/\d{1,2})+\b/.test(l)) return false;
     return /(?:fins|hasta|del|des de|des del|dilluns|dimarts|dimecres|dijous|divendres|dissabte|diumenge|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i.test(l);
@@ -88,12 +86,10 @@ function extractAuArticleHeader(html) {
   if (dateIdx === -1) return null;
 
   const dateLine = lines[dateIdx];
-
-  // Collect candidate venue lines (short non-paragraph lines immediately below date)
   const candidateVenueLines = [];
   for (let i = dateIdx + 1; i < Math.min(dateIdx + 4, lines.length); i++) {
     const line = lines[i];
-    if (line.length > 90) break; // Paragraph text starts
+    if (line.length > 90) break;
     if (line.length > 2) candidateVenueLines.push(line);
   }
 
@@ -146,7 +142,7 @@ function parseAuDateLine(dateText) {
     if (sIso && eIso) return { startDate: sIso, endDate: eIso };
   }
 
-  // 3. Consecutive days: "viernes 25 y sábado 26/9" or "dissabte 5 i diumenge 6/9"
+  // 3. Consecutive days: "viernes 25 y sábado 26/9"
   const consecutiveDays = clean.match(
     /(\d{1,2})\s+(?:y|i)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
@@ -180,14 +176,14 @@ function parseAuDateLine(dateText) {
 }
 
 /**
- * Resolves venue and address across all header lines without treating 'Pl.' as a venue abbreviation
+ * Resolves venue and address without treating 'Pl.' as an abbreviation
  */
 function resolveVenueFromCandidateLines(candidateLines = []) {
   if (!candidateLines || candidateLines.length === 0) {
     return { venueName: 'València', address: 'València' };
   }
 
-  // 1. Check all candidate lines against our verified venues dictionary
+  // 1. Check all candidate lines against verified venues dictionary
   for (const line of candidateLines) {
     for (const item of KNOWN_VENUES) {
       if (item.pattern.test(line)) {
@@ -196,7 +192,7 @@ function resolveVenueFromCandidateLines(candidateLines = []) {
     }
   }
 
-  // 2. Check for public squares / plazas (e.g. "PL. NÀPOLS I SICÍLIA")
+  // 2. Check for public squares / plazas
   for (const line of candidateLines) {
     const plazaMatch = line.match(/^(?:pl|plaça|plaza)\.?\s+(.*)$/i);
     if (plazaMatch) {
@@ -205,7 +201,7 @@ function resolveVenueFromCandidateLines(candidateLines = []) {
     }
   }
 
-  // 3. Fallback: Parse "[VENUE]. [ADDRESS]" where the address starts after the dot
+  // 3. Fallback: Parse "[VENUE]. [ADDRESS]"
   for (const line of candidateLines) {
     const dotSplit = line.match(/^([^.]+)\.\s+(.*)$/);
     if (dotSplit) {
@@ -218,14 +214,13 @@ function resolveVenueFromCandidateLines(candidateLines = []) {
     }
   }
 
-  // 4. Single unpunctuated venue name (e.g. "Poblats Marítims")
   return {
     venueName: toNaturalCase(candidateLines[0]),
     address: 'València',
   };
 }
 
-async function scrapeSongkick(page, context) {
+async function scrapeSongkick(page) {
   console.log('Scraping Songkick (Música)...');
   const targetUrl = 'https://www.songkick.com/metro-areas/28802-spain-valencia/this-month';
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -250,25 +245,7 @@ async function scrapeSongkick(page, context) {
             'València';
           const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
           const price = offer?.price ? `${offer.price}€` : undefined;
-          const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
-
-          // Check if Songkick image is a real photo or a default blank silhouette
-          let validImg = undefined;
-          if (rawImg && typeof rawImg === 'string') {
-            try {
-              const res = await context.request.get(rawImg, { maxRedirects: 3 });
-              const finalUrl = res.url();
-              const isDefaultPlaceholder =
-                finalUrl.includes('default') ||
-                finalUrl.includes('placeholder') ||
-                finalUrl.includes('avatar-artist') ||
-                finalUrl.includes('silhouette');
-
-              if (res.ok() && !isDefaultPlaceholder) {
-                validImg = rawImg;
-              }
-            } catch (_) {}
-          }
+          const img = Array.isArray(item.image) ? item.image[0] : item.image;
 
           events.push({
             id: `sk-${events.length + 1}-${Date.now()}`,
@@ -279,7 +256,7 @@ async function scrapeSongkick(page, context) {
             endDate: item.endDate ? new Date(item.endDate).toISOString() : undefined,
             venueName: venue,
             address: address,
-            imageUrl: validImg,
+            imageUrl: img || undefined,
             isFree: offer?.price === 0 || offer?.price === '0',
             ticketPrice: price,
             ticketUrl: offer?.url || item.url,
@@ -377,13 +354,16 @@ async function main() {
   });
   const page = await context.newPage();
 
+  // 1. Music (Songkick)
   const musicEvents = await scrapeSongkick(page);
 
+  // 2. Exhibitions (AU-Agenda)
   const expoEvents = await scrapeAuSection(page, context, 'Exposicions', 'exposicions', [
     'https://au-agenda.com/exposicions/',
     'https://au-agenda.com/exposicions/page/2/',
   ]);
 
+  // 3. Stage & Theater (AU-Agenda)
   const stageEvents = await scrapeAuSection(page, context, 'Escèniques', 'teatre', [
     'https://au-agenda.com/esceniques/',
     'https://au-agenda.com/esceniques/page/2/',
