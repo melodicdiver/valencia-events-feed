@@ -1,4 +1,4 @@
-name: Sync Valencia Music Events
+name: Sync Valencia Events Feed
 
 on:
   schedule:
