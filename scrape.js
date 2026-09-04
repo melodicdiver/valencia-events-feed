@@ -2,50 +2,124 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-// Month map for Spanish & Valencian dates
-const MONTHS = {
-  gener: 0, enero: 0, gen: 0, ene: 0,
-  febrer: 1, febrero: 1, feb: 1,
-  març: 2, marzo: 2, mar: 2,
-  abril: 3, abr: 3,
-  maig: 4, mayo: 4, mai: 4, may: 4,
-  juny: 5, junio: 5, jun: 5,
-  juliol: 6, julio: 6, jul: 6,
-  agost: 7, agosto: 7, ago: 7,
-  setembre: 8, septiembre: 8, set: 8, sep: 8,
-  octubre: 9, oct: 9,
-  novembre: 10, noviembre: 10, nov: 10,
-  desembre: 11, diciembre: 11, des: 11, dic: 11,
-};
+// Curated dictionary of iconic Valencia art venues, museums, and street addresses
+const KNOWN_VENUES = [
+  { pattern: /centre del carme|cccc/i, name: 'Centre del Carme (CCCC)', address: 'Carrer del Museu, 2, 46003 València' },
+  { pattern: /\bivam\b/i, name: 'IVAM', address: 'Guillem de Castro, 118, 46003 València' },
+  { pattern: /belles arts|bellas artes|san p[ií]o v/i, name: 'Museu de Belles Arts de València', address: 'Carrer de Sant Pius V, 9, 46010 València' },
+  { pattern: /\bmuvim\b/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
+  { pattern: /fundaci[oó] bancaixa|fundaci[oó]n bancaja/i, name: 'Fundació Bancaixa', address: 'Plaça de Tetuan, 23, 46003 València' },
+  { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
+  { pattern: /caixaforum/i, name: 'CaixaForum València', address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València' },
+  { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
+  { pattern: /reina 121|la reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
+  { pattern: /almud[ií]n|l’almod[ií]/i, name: 'L’Almodí', address: 'Plaça de Sant Lluís Bertran, 2, 46003 València' },
+  { pattern: /museu de cer[aà]mica|marqu[eé]s de dos aguas/i, name: 'Museu Nacional de Ceràmica', address: 'Carrer del Poeta Querol, 2, 46002 València' },
+  { pattern: /drassanes|atarazanas/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
+  { pattern: /l’etno|museu valenci[aà] d’etnologia/i, name: 'L’Etno', address: 'Carrer de la Corona, 36, 46003 València' },
+  { pattern: /prehist[oò]ria/i, name: 'Museu de Prehistòria de València', address: 'Carrer de la Corona, 36, 46003 València' },
+  { pattern: /palau de les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
+  { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
+  { pattern: /jard[ií] bot[aà]nic/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
+  { pattern: /la mutant/i, name: 'La Mutant', address: 'Carrer de Joan Verdaguer, 22, 46024 València' },
+  { pattern: /las naves/i, name: 'Las Naves', address: 'Carrer de Joan Verdaguer, 16, 46024 València' },
+  { pattern: /teatre el musical|tem\b/i, name: 'Teatre El Musical (TEM)', address: 'Plaça del Rosari, 3, 46011 València' },
+  { pattern: /casa museu benlliure/i, name: 'Casa Museu Benlliure', address: 'Carrer de Blanqueries, 23, 46003 València' },
+  { pattern: /camilo sesto/i, name: 'Museu Camilo Sesto', address: 'Alcoi' },
+  { pattern: /estudio 64/i, name: 'Estudio 64', address: 'Carrer de Benicolet, 2, 46020 València' },
+  { pattern: /shiras/i, name: 'Shiras Galería', address: 'Carrer de Vilaragut, 3, 46002 València' },
+  { pattern: /set espai/i, name: 'Set Espai d’Art', address: 'Plaça del Miracle del Mocadoret, 4, 46001 València' },
+  { pattern: /galer[ií]a cuatro/i, name: 'Galería Cuatro', address: 'Carrer de la Nau, 25, 46003 València' },
+  { pattern: /galer[ií]a thema/i, name: 'Galería Thema', address: 'Pl. d’Amèrica, 4, 46004 València' },
+  { pattern: /luis adelantado/i, name: 'Galería Luis Adelantado', address: 'Carrer de Bonaire, 6, 46003 València' },
+  { pattern: /la posta/i, name: 'La Posta del Carme', address: 'Carrer del Pintor Fillol, 2, 46003 València' },
+  { pattern: /ateneo mercantil/i, name: 'Ateneo Mercantil de Valencia', address: 'Plaça de l’Ajuntament, 18, 46002 València' },
+];
 
-function parseSpanishValencianDate(text) {
+/**
+ * Parses numeric dates (e.g. "5/9", "4/10", "28/2/2027") from AU-Agenda
+ */
+function parseAuDates(text) {
   if (!text) return null;
   const currentYear = new Date().getFullYear();
-  const clean = text.toLowerCase();
+  const clean = text.replace(/\s+/g, ' ').toLowerCase();
 
-  // Pattern: "fins al 15 d'octubre" or "hasta el 30 de noviembre de 2026"
-  const singleMatch = clean.match(/(?:fins al|fins|hasta el|hasta)\s+(\d{1,2})\s+(?:de|d')\s*([a-zç]+)(?:\s+(?:de\s+)?(\d{4}))?/i);
-  if (singleMatch) {
-    const day = parseInt(singleMatch[1], 10);
-    const month = MONTHS[singleMatch[2]];
-    const year = singleMatch[3] ? parseInt(singleMatch[3], 10) : currentYear;
-    if (month !== undefined) {
-      return new Date(Date.UTC(year, month, day, 20, 0, 0)).toISOString();
+  const toIso = (day, month, yearStr) => {
+    const d = parseInt(day, 10);
+    const m = parseInt(month, 10);
+    let y = currentYear;
+    if (yearStr) {
+      const yNum = parseInt(yearStr, 10);
+      y = yNum < 100 ? 2000 + yNum : yNum;
     }
+    if (isNaN(d) || isNaN(m) || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(Date.UTC(y, m - 1, d, 20, 0, 0));
+    return isNaN(dt.getTime()) ? null : dt.toISOString();
+  };
+
+  // 1. Date Range: "del dissabte 5/9 al dissabte 31/10" or "del 17/9 al 29/10"
+  const rangeMatch = clean.match(/(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
+  if (rangeMatch) {
+    let sYear = rangeMatch[3];
+    let eYear = rangeMatch[6];
+    const sMonth = parseInt(rangeMatch[2], 10);
+    const eMonth = parseInt(rangeMatch[5], 10);
+    if (!eYear && sMonth > eMonth) eYear = (currentYear + 1).toString();
+
+    const sIso = toIso(rangeMatch[1], rangeMatch[2], sYear);
+    const eIso = toIso(rangeMatch[4], rangeMatch[5], eYear);
+    if (eIso) return { startDate: sIso || new Date().toISOString(), endDate: eIso };
   }
 
-  // Pattern: "del 5 de setembre al 20 d'octubre"
-  const rangeMatch = clean.match(/al\s+(\d{1,2})\s+(?:de|d')\s*([a-zç]+)(?:\s+(?:de\s+)?(\d{4}))?/i);
-  if (rangeMatch) {
-    const day = parseInt(rangeMatch[1], 10);
-    const month = MONTHS[rangeMatch[2]];
-    const year = rangeMatch[3] ? parseInt(rangeMatch[3], 10) : currentYear;
-    if (month !== undefined) {
-      return new Date(Date.UTC(year, month, day, 20, 0, 0)).toISOString();
+  // 2. Single End Date: "hasta el domingo 4/10", "fins al 13/9", "fins el 28/2/2027", "hasta el 23/4/28"
+  const endMatch = clean.match(/(?:fins al|fins el|fins|hasta el|hasta|al)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
+  if (endMatch) {
+    let eYear = endMatch[3];
+    const eMonth = parseInt(endMatch[2], 10);
+    const currMonth = new Date().getMonth() + 1;
+    if (!eYear && eMonth < currMonth) eYear = (currentYear + 1).toString();
+
+    const eIso = toIso(endMatch[1], endMatch[2], eYear);
+    if (eIso) return { startDate: new Date().toISOString(), endDate: eIso };
+  }
+
+  // 3. Ongoing start: "des del dijous 11/6"
+  const startMatch = clean.match(/(?:des del|des de|desde el|desde)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
+  if (startMatch) {
+    const sIso = toIso(startMatch[1], startMatch[2], startMatch[3]);
+    if (sIso) {
+      const eIso = new Date(new Date(sIso).getTime() + 60 * 24 * 60 * 60 * 1000).toISOString();
+      return { startDate: sIso, endDate: eIso };
     }
   }
 
   return null;
+}
+
+function resolveVenueInfo(fullText = '', html = '') {
+  const combined = `${fullText} ${html}`;
+
+  for (const item of KNOWN_VENUES) {
+    if (item.pattern.test(combined)) {
+      return { venueName: item.name, address: item.address };
+    }
+  }
+
+  // Fallback: Check for explicit "Lloc:", "Lugar:", "On:" metadata in HTML
+  const explicitMatch = html.match(/(?:<strong>|<b>)?\s*(?:Lloc|Lugar|On|Dónde|Espai|Sala)\s*(?:<\/strong>|<\/b>)?\s*[:：]\s*([^<\n\r]+)/i);
+  if (explicitMatch) {
+    const raw = explicitMatch[1].replace(/<[^>]+>/g, '').trim();
+    const subMatch = raw.match(/^([^(),]+)(?:[,\s]*\(([^)]+)\)|,\s*(.+))?$/);
+    if (subMatch) {
+      return {
+        venueName: subMatch[1].trim(),
+        address: (subMatch[2] || subMatch[3] || 'València').trim(),
+      };
+    }
+    return { venueName: raw, address: 'València' };
+  }
+
+  return { venueName: 'València', address: 'València' };
 }
 
 async function scrapeSongkick(page) {
@@ -96,83 +170,84 @@ async function scrapeSongkick(page) {
   return events;
 }
 
-async function scrapeAuAgendaExpos(page) {
+async function scrapeAuAgendaExpos(page, context) {
   console.log('Scraping AU-Agenda (Exposicions)...');
   const urls = [
     'https://au-agenda.com/exposicions/',
     'https://au-agenda.com/exposicions/page/2/',
   ];
 
-  const expos = [];
-  const now = new Date();
+  const rawCards = [];
 
   for (const url of urls) {
     try {
-      console.log(`Navigating to ${url}...`);
+      console.log(`Fetching listing ${url}...`);
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-      const rawCards = await page.$$eval('article, .post, .type-post', (cards) => {
-        return cards.map((el) => {
+      const cards = await page.$$eval('article, .post, .type-post', (nodes) =>
+        nodes.map((el) => {
           const titleEl = el.querySelector('h2, h3, .entry-title');
-          const title = titleEl ? titleEl.textContent.trim() : '';
           const linkEl = el.querySelector('a');
-          const link = linkEl ? linkEl.href : '';
-          
           const imgEl = el.querySelector('img');
-          const img = imgEl ? (imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.src || '') : '';
-          
           const descEl = el.querySelector('.entry-summary, .entry-content, p');
-          const desc = descEl ? descEl.textContent.trim() : '';
 
-          return { title, link, img, desc };
-        });
-      });
-
-      for (const card of rawCards) {
-        if (!card.title || card.title.length < 3) continue;
-
-        // Try to parse end date from description text
-        const parsedEndDate = parseSpanishValencianDate(card.desc);
-        
-        // Exhibitions span weeks/months; default fallback is 30 days if not stated
-        const defaultEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        const endDate = parsedEndDate || defaultEndDate;
-
-        // Detect known Valencia museums/galleries from text
-        const text = `${card.title} ${card.desc}`.toLowerCase();
-        let venue = 'València';
-        if (text.includes('ivam')) venue = 'IVAM';
-        else if (text.includes('centre del carme') || text.includes('cccc')) venue = 'Centre del Carme (CCCC)';
-        else if (text.includes('bombas gens')) venue = 'Bombas Gens Centre d’Arts Digitals';
-        else if (text.includes('bancaixa') || text.includes('bancaja')) venue = 'Fundació Bancaixa';
-        else if (text.includes('muvim')) venue = 'MuVIM';
-        else if (text.includes('bellas artes') || text.includes('belles arts')) venue = 'Museu de Belles Arts de València';
-        else if (text.includes('la nau')) venue = 'La Nau Centre Cultural';
-        else if (text.includes('caixaforum')) venue = 'CaixaForum València';
-        else if (text.includes('palau de les arts')) venue = 'Palau de les Arts';
-
-        expos.push({
-          id: `au-expo-${expos.length + 1}-${Date.now()}`,
-          title: card.title,
-          description: card.desc ? card.desc.slice(0, 180) : `Exposició a ${venue}`,
-          category: 'exposicions',
-          startDate: now.toISOString(),
-          endDate: endDate,
-          venueName: venue,
-          address: 'València',
-          imageUrl: card.img || undefined,
-          isFree: false,
-          ticketPrice: undefined,
-          ticketUrl: card.link || 'https://au-agenda.com/exposicions/',
-          url: card.link || 'https://au-agenda.com/exposicions/',
-        });
-      }
+          return {
+            title: titleEl ? titleEl.textContent.trim() : '',
+            link: linkEl ? linkEl.href : '',
+            img: imgEl ? (imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.src || '') : '',
+            desc: descEl ? descEl.textContent.trim() : '',
+          };
+        })
+      );
+      rawCards.push(...cards);
     } catch (err) {
-      console.warn(`Failed scraping ${url}: ${err.message}`);
+      console.warn(`Could not load ${url}: ${err.message}`);
     }
   }
 
-  console.log(`Parsed ${expos.length} AU-Agenda exhibitions.`);
+  const expos = [];
+  const now = new Date();
+
+  for (const card of rawCards) {
+    if (!card.title || card.title.length < 3) continue;
+
+    // Fetch individual exhibition article in background to retrieve exact venue and address
+    let articleHtml = '';
+    if (card.link) {
+      try {
+        const res = await context.request.get(card.link, { timeout: 15000 });
+        if (res.ok()) {
+          articleHtml = await res.text();
+        }
+      } catch (_) {}
+    }
+
+    // 1. Resolve Venue and Street Address
+    const { venueName, address } = resolveVenueInfo(`${card.title} ${card.desc}`, articleHtml);
+
+    // 2. Parse Accurate Dates
+    const parsedDates = parseAuDates(card.desc) || parseAuDates(articleHtml);
+    const startDate = parsedDates?.startDate || now.toISOString();
+    const endDate = parsedDates?.endDate || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    expos.push({
+      id: `au-expo-${expos.length + 1}-${Date.now()}`,
+      title: card.title,
+      description: card.desc ? card.desc.slice(0, 180) : `Exposició a ${venueName}`,
+      category: 'exposicions',
+      startDate,
+      endDate,
+      venueName,
+      address,
+      imageUrl: card.img || undefined,
+      isFree: false,
+      ticketPrice: undefined,
+      ticketUrl: card.link || 'https://au-agenda.com/exposicions/',
+      url: card.link || 'https://au-agenda.com/exposicions/',
+    });
+  }
+
+  console.log(`Parsed ${expos.length} AU-Agenda exhibitions with individual venues and dates.`);
   return expos;
 }
 
@@ -186,7 +261,7 @@ async function main() {
   const page = await context.newPage();
 
   const musicEvents = await scrapeSongkick(page);
-  const expoEvents = await scrapeAuAgendaExpos(page);
+  const expoEvents = await scrapeAuAgendaExpos(page, context);
 
   await browser.close();
 
