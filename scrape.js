@@ -30,12 +30,15 @@ const KNOWN_VENUES = [
   { pattern: /la mutant/i, name: 'La Mutant', address: 'Carrer de Joan Verdaguer, 22, 46024 València' },
   { pattern: /las naves/i, name: 'Las Naves', address: 'Carrer de Joan Verdaguer, 16, 46024 València' },
   { pattern: /sala russafa/i, name: 'Sala Russafa', address: 'Carrer de Dénia, 55, 46006 València' },
-  { pattern: /teatre talia|teatro tal[ií]a/i, name: 'Teatre Talia', address: 'Carrer dels Cavallers, 31, 46001 València' },
-  { pattern: /teatre olympia|teatro olympia/i, name: 'Teatre Olympia', address: 'Carrer de Sant Vicent Màrtir, 44, 46002 València' },
-  { pattern: /teatre principal|teatro principal/i, name: 'Teatre Principal', address: 'Carrer de les Barques, 15, 46002 València' },
-  { pattern: /teatre rialto|teatro rialto/i, name: 'Teatre Rialto', address: 'Plaça de l’Ajuntament, 17, 46002 València' },
-  { pattern: /teatre micalet/i, name: 'Teatre Micalet', address: 'Carrer del Mestre Palau, 6, 46008 València' },
+  { pattern: /teatre talia|teatro tal[ií]a|\bt\.?\s*talia/i, name: 'Teatre Talia', address: 'Carrer dels Cavallers, 31, 46001 València' },
+  { pattern: /c[ií]rculo|\bt\.?\s*c[ií]rculo/i, name: 'Teatre Círculo', address: 'Carrer de Prudenci Alcón i Mateu, 3, 46008 València' },
+  { pattern: /flumen|\bt\.?\s*flumen/i, name: 'Teatre Flumen', address: 'Carrer de Gregori Gea, 15, 46009 València' },
+  { pattern: /teatre olympia|teatro olympia|\bt\.?\s*olympia/i, name: 'Teatre Olympia', address: 'Carrer de Sant Vicent Màrtir, 44, 46002 València' },
+  { pattern: /teatre principal|teatro principal|\bt\.?\s*principal/i, name: 'Teatre Principal', address: 'Carrer de les Barques, 15, 46002 València' },
+  { pattern: /teatre rialto|teatro rialto|\bt\.?\s*rialto/i, name: 'Teatre Rialto', address: 'Plaça de l’Ajuntament, 17, 46002 València' },
+  { pattern: /teatre micalet|\bt\.?\s*micalet/i, name: 'Teatre Micalet', address: 'Carrer del Mestre Palau, 6, 46008 València' },
   { pattern: /carme teatre/i, name: 'Carme Teatre', address: 'Carrer de Gregori Gea, 6, 46009 València' },
+  { pattern: /sala off|\boff\b/i, name: 'Sala Off', address: 'Carrer del Túria, 47, 46008 València' },
   { pattern: /espai lagranja|la granja/i, name: 'Espai LaGranja', address: 'Passeig de la Pechina, 15, 46008 València' },
   { pattern: /palau de les arts|les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
   { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
@@ -176,14 +179,25 @@ function parseAuDateLine(dateText) {
 }
 
 /**
- * Resolves venue and address without treating 'Pl.' as an abbreviation
+ * Resolves venue and address with abbreviation expansion (T., E., F., S., M.)
  */
-function resolveVenueFromCandidateLines(candidateLines = []) {
-  if (!candidateLines || candidateLines.length === 0) {
+function resolveVenueFromCandidateLines(rawCandidateLines = []) {
+  if (!rawCandidateLines || rawCandidateLines.length === 0) {
     return { venueName: 'València', address: 'València' };
   }
 
-  // 1. Check all candidate lines against verified venues dictionary
+  // Expand standard acronym prefixes so they are never treated as lone letters
+  const candidateLines = rawCandidateLines.map((line) =>
+    line
+      .replace(/^T\.\s*/i, 'Teatre ')
+      .replace(/^E\.\s*/i, 'Espai ')
+      .replace(/^F\.\s*/i, 'Fundació ')
+      .replace(/^S\.\s*/i, 'Sala ')
+      .replace(/^M\.\s*/i, 'Museu ')
+      .trim()
+  );
+
+  // 1. Check all candidate lines against our verified venues dictionary
   for (const line of candidateLines) {
     for (const item of KNOWN_VENUES) {
       if (item.pattern.test(line)) {
@@ -201,9 +215,9 @@ function resolveVenueFromCandidateLines(candidateLines = []) {
     }
   }
 
-  // 3. Fallback: Parse "[VENUE]. [ADDRESS]"
+  // 3. Fallback: Parse "[VENUE]. [ADDRESS]" (avoiding single-character splits)
   for (const line of candidateLines) {
-    const dotSplit = line.match(/^([^.]+)\.\s+(.*)$/);
+    const dotSplit = line.match(/^([^.]{3,})\.\s+(.*)$/);
     if (dotSplit) {
       const rawV = dotSplit[1].trim();
       const rawA = dotSplit[2].trim();
