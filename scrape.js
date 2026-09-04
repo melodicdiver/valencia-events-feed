@@ -225,7 +225,7 @@ function resolveVenueFromCandidateLines(candidateLines = []) {
   };
 }
 
-async function scrapeSongkick(page) {
+async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música)...');
   const targetUrl = 'https://www.songkick.com/metro-areas/28802-spain-valencia/this-month';
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -250,7 +250,25 @@ async function scrapeSongkick(page) {
             'València';
           const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
           const price = offer?.price ? `${offer.price}€` : undefined;
-          const img = Array.isArray(item.image) ? item.image[0] : item.image;
+          const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
+
+          // Check if Songkick image is a real photo or a default blank silhouette
+          let validImg = undefined;
+          if (rawImg && typeof rawImg === 'string') {
+            try {
+              const res = await context.request.get(rawImg, { maxRedirects: 3 });
+              const finalUrl = res.url();
+              const isDefaultPlaceholder =
+                finalUrl.includes('default') ||
+                finalUrl.includes('placeholder') ||
+                finalUrl.includes('avatar-artist') ||
+                finalUrl.includes('silhouette');
+
+              if (res.ok() && !isDefaultPlaceholder) {
+                validImg = rawImg;
+              }
+            } catch (_) {}
+          }
 
           events.push({
             id: `sk-${events.length + 1}-${Date.now()}`,
@@ -261,7 +279,7 @@ async function scrapeSongkick(page) {
             endDate: item.endDate ? new Date(item.endDate).toISOString() : undefined,
             venueName: venue,
             address: address,
-            imageUrl: img || undefined,
+            imageUrl: validImg,
             isFree: offer?.price === 0 || offer?.price === '0',
             ticketPrice: price,
             ticketUrl: offer?.url || item.url,
