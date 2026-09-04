@@ -2,15 +2,15 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-// Curated dictionary for Valencia museums, cultural centers, and stage venues
+// Curated dictionary for Valencia museums, cultural centers, and theaters
 const KNOWN_VENUES = [
-  // Art & Museums
+  // Major Museums & Cultural Centers
   { pattern: /mubav|belles arts|bellas artes/i, name: 'Museu de Belles Arts de València (MuBAV)', address: 'Carrer de Sant Pius V, 9, 46010 València' },
   { pattern: /\bcccc\b|centre del carme/i, name: 'Centre del Carme (CCCC)', address: 'Carrer del Museu, 2, 46003 València' },
   { pattern: /\bivam\b/i, name: 'IVAM', address: 'Guillem de Castro, 118, 46003 València' },
   { pattern: /l['’]?etno|\betno\b/i, name: "L'ETNO (Museu Valencià d'Etnologia)", address: 'Carrer de la Corona, 36, 46003 València' },
   { pattern: /sala municipal/i, name: "Sala Municipal d'Exposicions", address: "Carrer de l'Arquebisbe Mayoral, 1, 46002 València" },
-  { pattern: /bancaixa|bancaja/i, name: 'Fundació Bancaixa', address: 'Plaça de Tetuan, 23, 46003 València' },
+  { pattern: /bancaixa|bancaja|\bf\.?\s*banca/i, name: 'Fundació Bancaixa', address: 'Plaça de Tetuan, 23, 46003 València' },
   { pattern: /ateneu|ateneo/i, name: 'Ateneu Mercantil de València', address: 'Plaça de l’Ajuntament, 18, 46002 València' },
   { pattern: /reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
   { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
@@ -23,7 +23,9 @@ const KNOWN_VENUES = [
   { pattern: /camilo sesto/i, name: 'Museu Camilo Sesto', address: 'Alcoi' },
   { pattern: /rector peset/i, name: 'Col·legi Major Rector Peset', address: 'Forn de Sant Nicolau, 4, 46001 València' },
 
-  // Stage & Theaters
+  // Stage, Theaters & Venues
+  { pattern: /rambleta/i, name: 'La Rambleta', address: 'Bulevar Sur esq. Carrer Pío IX, 46017 València' },
+  { pattern: /espai inestable|\be\.?\s*inestable\b/i, name: 'Espai Inestable', address: 'Carrer d’Aparisi i Guijarro, 7, 46003 València' },
   { pattern: /teatre el musical|\btem\b/i, name: 'Teatre El Musical (TEM)', address: 'Plaça del Rosari, 3, 46011 València' },
   { pattern: /la mutant/i, name: 'La Mutant', address: 'Carrer de Joan Verdaguer, 22, 46024 València' },
   { pattern: /las naves/i, name: 'Las Naves', address: 'Carrer de Joan Verdaguer, 16, 46024 València' },
@@ -32,13 +34,12 @@ const KNOWN_VENUES = [
   { pattern: /teatre olympia|teatro olympia/i, name: 'Teatre Olympia', address: 'Carrer de Sant Vicent Màrtir, 44, 46002 València' },
   { pattern: /teatre principal|teatro principal/i, name: 'Teatre Principal', address: 'Carrer de les Barques, 15, 46002 València' },
   { pattern: /teatre rialto|teatro rialto/i, name: 'Teatre Rialto', address: 'Plaça de l’Ajuntament, 17, 46002 València' },
-  { pattern: /espai inestable/i, name: 'Espai Inestable', address: 'Carrer d’Aparisi i Guijarro, 7, 46003 València' },
   { pattern: /teatre micalet/i, name: 'Teatre Micalet', address: 'Carrer del Mestre Palau, 6, 46008 València' },
   { pattern: /carme teatre/i, name: 'Carme Teatre', address: 'Carrer de Gregori Gea, 6, 46009 València' },
-  { pattern: /la rambleta/i, name: 'La Rambleta', address: 'Bulevar Sur esq. Carrer Pío IX, 46017 València' },
   { pattern: /espai lagranja|la granja/i, name: 'Espai LaGranja', address: 'Passeig de la Pechina, 15, 46008 València' },
-  { pattern: /palau de les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
+  { pattern: /palau de les arts|les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
   { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
+  { pattern: /jardins del palau/i, name: 'Jardins del Palau', address: 'Passeig de l’Albereda, 30, 46023 València' },
 ];
 
 function toNaturalCase(str) {
@@ -57,6 +58,9 @@ function toNaturalCase(str) {
     .join('');
 }
 
+/**
+ * Robust header extractor that catches all weekday formats and multi-line venues
+ */
 function extractAuArticleHeader(html) {
   if (!html) return null;
 
@@ -74,19 +78,31 @@ function extractAuArticleHeader(html) {
     .map((l) => l.trim())
     .filter(Boolean);
 
-  const dateIdx = lines.findIndex(
-    (l) => /^(?:fins|hasta|del|des de|des del)\b/i.test(l) && /\d{1,2}\/\d{1,2}/.test(l)
-  );
+  // Matches date lines starting with prepositions OR weekdays:
+  // "DEL DIMARTS 1 AL DIUMENGE 20/9", "VIERNES 25 Y SÁBADO 26/9", "FINS AL 13/9"
+  const dateIdx = lines.findIndex((l) => {
+    if (!/\b\d{1,2}(?:\/\d{1,2})+\b/.test(l)) return false;
+    return /(?:fins|hasta|del|des de|des del|dilluns|dimarts|dimecres|dijous|divendres|dissabte|diumenge|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i.test(l);
+  });
 
   if (dateIdx === -1) return null;
 
   const dateLine = lines[dateIdx];
-  const nextLine = lines[dateIdx + 1] || '';
-  const venueLine = nextLine.length < 80 ? nextLine : '';
 
-  return { dateLine, venueLine };
+  // Collect candidate venue lines (short non-paragraph lines immediately below date)
+  const candidateVenueLines = [];
+  for (let i = dateIdx + 1; i < Math.min(dateIdx + 4, lines.length); i++) {
+    const line = lines[i];
+    if (line.length > 90) break; // Paragraph text starts
+    if (line.length > 2) candidateVenueLines.push(line);
+  }
+
+  return { dateLine, candidateVenueLines };
 }
 
+/**
+ * Flexible date parser for ranges, consecutive days, and shared-month strings
+ */
 function parseAuDateLine(dateText) {
   if (!dateText) return null;
   const currentYear = new Date().getFullYear();
@@ -105,21 +121,42 @@ function parseAuDateLine(dateText) {
     return isNaN(dt.getTime()) ? null : dt.toISOString();
   };
 
-  const rangeMatch = clean.match(
+  // 1. Explicit range with both months: "del dissabte 5/9 al dissabte 31/10"
+  const rangeBothMonths = clean.match(
     /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
-  if (rangeMatch) {
-    let sYear = rangeMatch[3];
-    let eYear = rangeMatch[6];
-    const sMonth = parseInt(rangeMatch[2], 10);
-    const eMonth = parseInt(rangeMatch[5], 10);
+  if (rangeBothMonths) {
+    let sYear = rangeBothMonths[3];
+    let eYear = rangeBothMonths[6];
+    const sMonth = parseInt(rangeBothMonths[2], 10);
+    const eMonth = parseInt(rangeBothMonths[5], 10);
     if (!eYear && sMonth > eMonth) eYear = (currentYear + 1).toString();
-
-    const sIso = toIso(rangeMatch[1], rangeMatch[2], sYear);
-    const eIso = toIso(rangeMatch[4], rangeMatch[5], eYear);
+    const sIso = toIso(rangeBothMonths[1], rangeBothMonths[2], sYear);
+    const eIso = toIso(rangeBothMonths[4], rangeBothMonths[5], eYear);
     if (eIso) return { startDate: sIso || new Date().toISOString(), endDate: eIso };
   }
 
+  // 2. Range sharing month: "del dimarts 1 al diumenge 20/9"
+  const rangeSharedMonth = clean.match(
+    /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
+  );
+  if (rangeSharedMonth) {
+    const sIso = toIso(rangeSharedMonth[1], rangeSharedMonth[3], rangeSharedMonth[4]);
+    const eIso = toIso(rangeSharedMonth[2], rangeSharedMonth[3], rangeSharedMonth[4]);
+    if (sIso && eIso) return { startDate: sIso, endDate: eIso };
+  }
+
+  // 3. Consecutive days: "viernes 25 y sábado 26/9" or "dissabte 5 i diumenge 6/9"
+  const consecutiveDays = clean.match(
+    /(\d{1,2})\s+(?:y|i)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
+  );
+  if (consecutiveDays) {
+    const sIso = toIso(consecutiveDays[1], consecutiveDays[3], consecutiveDays[4]);
+    const eIso = toIso(consecutiveDays[2], consecutiveDays[3], consecutiveDays[4]);
+    if (sIso && eIso) return { startDate: sIso, endDate: eIso };
+  }
+
+  // 4. Single end date: "fins al 13/9", "hasta el domingo 4/10"
   const endMatch = clean.match(
     /(?:fins al|fins el|fins|hasta el|hasta|al)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
@@ -128,49 +165,64 @@ function parseAuDateLine(dateText) {
     const eMonth = parseInt(endMatch[2], 10);
     const currMonth = new Date().getMonth() + 1;
     if (!eYear && eMonth < currMonth) eYear = (currentYear + 1).toString();
-
     const eIso = toIso(endMatch[1], endMatch[2], eYear);
     if (eIso) return { startDate: new Date().toISOString(), endDate: eIso };
+  }
+
+  // 5. Single date: "dijous 24/9"
+  const singleDate = clean.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
+  if (singleDate) {
+    const iso = toIso(singleDate[1], singleDate[2], singleDate[3]);
+    if (iso) return { startDate: iso, endDate: iso };
   }
 
   return null;
 }
 
-function resolveVenueFromHeader(venueLine = '') {
-  if (!venueLine) return { venueName: 'València', address: 'València' };
+/**
+ * Resolves venue and address across all header lines without treating 'Pl.' as a venue abbreviation
+ */
+function resolveVenueFromCandidateLines(candidateLines = []) {
+  if (!candidateLines || candidateLines.length === 0) {
+    return { venueName: 'València', address: 'València' };
+  }
 
-  for (const item of KNOWN_VENUES) {
-    if (item.pattern.test(venueLine)) {
-      return { venueName: item.name, address: item.address };
+  // 1. Check all candidate lines against our verified venues dictionary
+  for (const line of candidateLines) {
+    for (const item of KNOWN_VENUES) {
+      if (item.pattern.test(line)) {
+        return { venueName: item.name, address: item.address };
+      }
     }
   }
 
-  const addrMatch = venueLine.match(
-    /\.\s+((?:(?:pl|plaça|plaza|c\/|carrer|calle|av|avinguda|avenida|gran via|passeig|paseo)\b|[^,.]+,?\s*\d+).*)$/i
-  );
-
-  let rawVenue = venueLine;
-  let rawAddress = '';
-
-  if (addrMatch) {
-    rawVenue = venueLine.slice(0, addrMatch.index).trim();
-    rawAddress = addrMatch[1].trim();
-  } else {
-    const lastDot = venueLine.lastIndexOf('.');
-    if (lastDot > 0 && lastDot < venueLine.length - 1) {
-      rawVenue = venueLine.slice(0, lastDot).trim();
-      rawAddress = venueLine.slice(lastDot + 1).trim();
+  // 2. Check for public squares / plazas (e.g. "PL. NÀPOLS I SICÍLIA")
+  for (const line of candidateLines) {
+    const plazaMatch = line.match(/^(?:pl|plaça|plaza)\.?\s+(.*)$/i);
+    if (plazaMatch) {
+      const plazaName = toNaturalCase(`Plaça de ${plazaMatch[1].trim()}`);
+      return { venueName: plazaName, address: `${plazaName}, València` };
     }
   }
 
-  const formattedVenue = toNaturalCase(rawVenue);
-  const formattedAddress = rawAddress
-    ? rawAddress.toLowerCase().includes('val')
-      ? rawAddress
-      : `${rawAddress}, València`
-    : 'València';
+  // 3. Fallback: Parse "[VENUE]. [ADDRESS]" where the address starts after the dot
+  for (const line of candidateLines) {
+    const dotSplit = line.match(/^([^.]+)\.\s+(.*)$/);
+    if (dotSplit) {
+      const rawV = dotSplit[1].trim();
+      const rawA = dotSplit[2].trim();
+      return {
+        venueName: toNaturalCase(rawV),
+        address: rawA.toLowerCase().includes('val') ? rawA : `${rawA}, València`,
+      };
+    }
+  }
 
-  return { venueName: formattedVenue, address: formattedAddress };
+  // 4. Single unpunctuated venue name (e.g. "Poblats Marítims")
+  return {
+    venueName: toNaturalCase(candidateLines[0]),
+    address: 'València',
+  };
 }
 
 async function scrapeSongkick(page) {
@@ -271,7 +323,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
     }
 
     const headerMeta = extractAuArticleHeader(articleHtml);
-    const { venueName, address } = resolveVenueFromHeader(headerMeta?.venueLine);
+    const { venueName, address } = resolveVenueFromCandidateLines(headerMeta?.candidateVenueLines);
 
     const parsedDates = parseAuDateLine(headerMeta?.dateLine);
     const startDate = parsedDates?.startDate || now.toISOString();
@@ -307,16 +359,13 @@ async function main() {
   });
   const page = await context.newPage();
 
-  // 1. Music (Songkick)
   const musicEvents = await scrapeSongkick(page);
 
-  // 2. Exhibitions (AU-Agenda)
   const expoEvents = await scrapeAuSection(page, context, 'Exposicions', 'exposicions', [
     'https://au-agenda.com/exposicions/',
     'https://au-agenda.com/exposicions/page/2/',
   ]);
 
-  // 3. Stage & Theater (AU-Agenda)
   const stageEvents = await scrapeAuSection(page, context, 'Escèniques', 'teatre', [
     'https://au-agenda.com/esceniques/',
     'https://au-agenda.com/esceniques/page/2/',
@@ -334,9 +383,8 @@ async function main() {
 
   const outPath = path.join(outDir, 'events.json');
 
-  // Safety: never overwrite good data with an empty file if network/scraping drops
   if (combined.length === 0 && fs.existsSync(outPath)) {
-    console.warn('Scraper collected 0 events; keeping previous events.json to avoid downtime.');
+    console.warn('Scraper collected 0 events; keeping previous events.json.');
     return;
   }
 
