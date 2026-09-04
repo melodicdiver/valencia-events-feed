@@ -61,9 +61,6 @@ function toNaturalCase(str) {
     .join('');
 }
 
-/**
- * Header extractor that catches weekday formats and multi-line venues
- */
 function extractAuArticleHeader(html) {
   if (!html) return null;
 
@@ -99,9 +96,6 @@ function extractAuArticleHeader(html) {
   return { dateLine, candidateVenueLines };
 }
 
-/**
- * Flexible date parser for ranges, consecutive days, and shared-month strings
- */
 function parseAuDateLine(dateText) {
   if (!dateText) return null;
   const currentYear = new Date().getFullYear();
@@ -120,7 +114,6 @@ function parseAuDateLine(dateText) {
     return isNaN(dt.getTime()) ? null : dt.toISOString();
   };
 
-  // 1. Explicit range with both months: "del dissabte 5/9 al dissabte 31/10"
   const rangeBothMonths = clean.match(
     /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
@@ -135,7 +128,6 @@ function parseAuDateLine(dateText) {
     if (eIso) return { startDate: sIso || new Date().toISOString(), endDate: eIso };
   }
 
-  // 2. Range sharing month: "del dimarts 1 al diumenge 20/9"
   const rangeSharedMonth = clean.match(
     /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
@@ -145,7 +137,6 @@ function parseAuDateLine(dateText) {
     if (sIso && eIso) return { startDate: sIso, endDate: eIso };
   }
 
-  // 3. Consecutive days: "viernes 25 y sábado 26/9"
   const consecutiveDays = clean.match(
     /(\d{1,2})\s+(?:y|i)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
@@ -155,7 +146,6 @@ function parseAuDateLine(dateText) {
     if (sIso && eIso) return { startDate: sIso, endDate: eIso };
   }
 
-  // 4. Single end date: "fins al 13/9", "hasta el domingo 4/10"
   const endMatch = clean.match(
     /(?:fins al|fins el|fins|hasta el|hasta|al)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
   );
@@ -168,7 +158,6 @@ function parseAuDateLine(dateText) {
     if (eIso) return { startDate: new Date().toISOString(), endDate: eIso };
   }
 
-  // 5. Single date: "dijous 24/9"
   const singleDate = clean.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
   if (singleDate) {
     const iso = toIso(singleDate[1], singleDate[2], singleDate[3]);
@@ -178,15 +167,11 @@ function parseAuDateLine(dateText) {
   return null;
 }
 
-/**
- * Resolves venue and address with abbreviation expansion (T., E., F., S., M.)
- */
 function resolveVenueFromCandidateLines(rawCandidateLines = []) {
   if (!rawCandidateLines || rawCandidateLines.length === 0) {
     return { venueName: 'València', address: 'València' };
   }
 
-  // Expand standard acronym prefixes so they are never treated as lone letters
   const candidateLines = rawCandidateLines.map((line) =>
     line
       .replace(/^T\.\s*/i, 'Teatre ')
@@ -197,7 +182,6 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
       .trim()
   );
 
-  // 1. Check all candidate lines against our verified venues dictionary
   for (const line of candidateLines) {
     for (const item of KNOWN_VENUES) {
       if (item.pattern.test(line)) {
@@ -206,7 +190,6 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
     }
   }
 
-  // 2. Check for public squares / plazas
   for (const line of candidateLines) {
     const plazaMatch = line.match(/^(?:pl|plaça|plaza)\.?\s+(.*)$/i);
     if (plazaMatch) {
@@ -215,7 +198,6 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
     }
   }
 
-  // 3. Fallback: Parse "[VENUE]. [ADDRESS]" (avoiding single-character splits)
   for (const line of candidateLines) {
     const dotSplit = line.match(/^([^.]{3,})\.\s+(.*)$/);
     if (dotSplit) {
@@ -234,7 +216,7 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
   };
 }
 
-async function scrapeSongkick(page) {
+async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música)...');
   const targetUrl = 'https://www.songkick.com/metro-areas/28802-spain-valencia/this-month';
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -259,7 +241,27 @@ async function scrapeSongkick(page) {
             'València';
           const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
           const price = offer?.price ? `${offer.price}€` : undefined;
-          const img = Array.isArray(item.image) ? item.image[0] : item.image;
+          const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
+
+          let validImg = undefined;
+          if (rawImg && typeof rawImg === 'string') {
+            try {
+              const res = await context.request.get(rawImg, { maxRedirects: 5 });
+              const finalUrl = res.url();
+              const buffer = await res.body();
+              const isPlaceholder =
+                finalUrl.includes('default') ||
+                finalUrl.includes('placeholder') ||
+                finalUrl.includes('assets.sk-static.com') ||
+                buffer.length < 3500;
+
+              if (res.ok() && !isPlaceholder) {
+                validImg = rawImg;
+              }
+            } catch (_) {
+              validImg = rawImg;
+            }
+          }
 
           events.push({
             id: `sk-${events.length + 1}-${Date.now()}`,
@@ -270,7 +272,7 @@ async function scrapeSongkick(page) {
             endDate: item.endDate ? new Date(item.endDate).toISOString() : undefined,
             venueName: venue,
             address: address,
-            imageUrl: img || undefined,
+            imageUrl: validImg,
             isFree: offer?.price === 0 || offer?.price === '0',
             ticketPrice: price,
             ticketUrl: offer?.url || item.url,
@@ -369,7 +371,7 @@ async function main() {
   const page = await context.newPage();
 
   // 1. Music (Songkick)
-  const musicEvents = await scrapeSongkick(page);
+  const musicEvents = await scrapeSongkick(page, context);
 
   // 2. Exhibitions (AU-Agenda)
   const expoEvents = await scrapeAuSection(page, context, 'Exposicions', 'exposicions', [
