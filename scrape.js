@@ -2,7 +2,9 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
+// Curated dictionary for Valencia museums, cultural centers, and stage venues
 const KNOWN_VENUES = [
+  // Art & Museums
   { pattern: /mubav|belles arts|bellas artes/i, name: 'Museu de Belles Arts de València (MuBAV)', address: 'Carrer de Sant Pius V, 9, 46010 València' },
   { pattern: /\bcccc\b|centre del carme/i, name: 'Centre del Carme (CCCC)', address: 'Carrer del Museu, 2, 46003 València' },
   { pattern: /\bivam\b/i, name: 'IVAM', address: 'Guillem de Castro, 118, 46003 València' },
@@ -16,12 +18,27 @@ const KNOWN_VENUES = [
   { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
   { pattern: /muvim/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
   { pattern: /bot[aà]nic/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
-  { pattern: /las naves/i, name: 'Las Naves', address: 'Carrer de Joan Verdaguer, 16, 46024 València' },
-  { pattern: /la mutant/i, name: 'La Mutant', address: 'Carrer de Joan Verdaguer, 22, 46024 València' },
   { pattern: /drassanes/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
   { pattern: /almod[ií]/i, name: "L'Almodí", address: 'Plaça de Sant Lluís Bertran, 2, 46003 València' },
   { pattern: /camilo sesto/i, name: 'Museu Camilo Sesto', address: 'Alcoi' },
   { pattern: /rector peset/i, name: 'Col·legi Major Rector Peset', address: 'Forn de Sant Nicolau, 4, 46001 València' },
+
+  // Stage & Theaters
+  { pattern: /teatre el musical|\btem\b/i, name: 'Teatre El Musical (TEM)', address: 'Plaça del Rosari, 3, 46011 València' },
+  { pattern: /la mutant/i, name: 'La Mutant', address: 'Carrer de Joan Verdaguer, 22, 46024 València' },
+  { pattern: /las naves/i, name: 'Las Naves', address: 'Carrer de Joan Verdaguer, 16, 46024 València' },
+  { pattern: /sala russafa/i, name: 'Sala Russafa', address: 'Carrer de Dénia, 55, 46006 València' },
+  { pattern: /teatre talia|teatro tal[ií]a/i, name: 'Teatre Talia', address: 'Carrer dels Cavallers, 31, 46001 València' },
+  { pattern: /teatre olympia|teatro olympia/i, name: 'Teatre Olympia', address: 'Carrer de Sant Vicent Màrtir, 44, 46002 València' },
+  { pattern: /teatre principal|teatro principal/i, name: 'Teatre Principal', address: 'Carrer de les Barques, 15, 46002 València' },
+  { pattern: /teatre rialto|teatro rialto/i, name: 'Teatre Rialto', address: 'Plaça de l’Ajuntament, 17, 46002 València' },
+  { pattern: /espai inestable/i, name: 'Espai Inestable', address: 'Carrer d’Aparisi i Guijarro, 7, 46003 València' },
+  { pattern: /teatre micalet/i, name: 'Teatre Micalet', address: 'Carrer del Mestre Palau, 6, 46008 València' },
+  { pattern: /carme teatre/i, name: 'Carme Teatre', address: 'Carrer de Gregori Gea, 6, 46009 València' },
+  { pattern: /la rambleta/i, name: 'La Rambleta', address: 'Bulevar Sur esq. Carrer Pío IX, 46017 València' },
+  { pattern: /espai lagranja|la granja/i, name: 'Espai LaGranja', address: 'Passeig de la Pechina, 15, 46008 València' },
+  { pattern: /palau de les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
+  { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
 ];
 
 function toNaturalCase(str) {
@@ -122,14 +139,12 @@ function parseAuDateLine(dateText) {
 function resolveVenueFromHeader(venueLine = '') {
   if (!venueLine) return { venueName: 'València', address: 'València' };
 
-  // 1. Check known venues across the entire header line
   for (const item of KNOWN_VENUES) {
     if (item.pattern.test(venueLine)) {
       return { venueName: item.name, address: item.address };
     }
   }
 
-  // 2. Safe address split: locate where the street or plaza begins
   const addrMatch = venueLine.match(
     /\.\s+((?:(?:pl|plaça|plaza|c\/|carrer|calle|av|avinguda|avenida|gran via|passeig|paseo)\b|[^,.]+,?\s*\d+).*)$/i
   );
@@ -159,7 +174,7 @@ function resolveVenueFromHeader(venueLine = '') {
 }
 
 async function scrapeSongkick(page) {
-  console.log('Scraping Songkick (Concerts)...');
+  console.log('Scraping Songkick (Música)...');
   const targetUrl = 'https://www.songkick.com/metro-areas/28802-spain-valencia/this-month';
   await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
@@ -209,13 +224,8 @@ async function scrapeSongkick(page) {
   return events;
 }
 
-async function scrapeAuAgendaExpos(page, context) {
-  console.log('Scraping AU-Agenda (Exposicions)...');
-  const urls = [
-    'https://au-agenda.com/exposicions/',
-    'https://au-agenda.com/exposicions/page/2/',
-  ];
-
+async function scrapeAuSection(page, context, label, category, urls) {
+  console.log(`Scraping AU-Agenda (${label})...`);
   const rawCards = [];
 
   for (const url of urls) {
@@ -244,7 +254,7 @@ async function scrapeAuAgendaExpos(page, context) {
     }
   }
 
-  const expos = [];
+  const events = [];
   const now = new Date();
 
   for (const card of rawCards) {
@@ -265,13 +275,13 @@ async function scrapeAuAgendaExpos(page, context) {
 
     const parsedDates = parseAuDateLine(headerMeta?.dateLine);
     const startDate = parsedDates?.startDate || now.toISOString();
-    const endDate = parsedDates?.endDate || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const endDate = parsedDates?.endDate || new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-    expos.push({
-      id: `au-expo-${expos.length + 1}-${Date.now()}`,
+    events.push({
+      id: `au-${category}-${events.length + 1}-${Date.now()}`,
       title: card.title,
-      description: card.desc ? card.desc.slice(0, 180) : `Exposició a ${venueName}`,
-      category: 'exposicions',
+      description: card.desc ? card.desc.slice(0, 180) : `${label} a ${venueName}`,
+      category: category,
       startDate,
       endDate,
       venueName,
@@ -279,13 +289,13 @@ async function scrapeAuAgendaExpos(page, context) {
       imageUrl: card.img || undefined,
       isFree: false,
       ticketPrice: undefined,
-      ticketUrl: card.link || 'https://au-agenda.com/exposicions/',
-      url: card.link || 'https://au-agenda.com/exposicions/',
+      ticketUrl: card.link || urls[0],
+      url: card.link || urls[0],
     });
   }
 
-  console.log(`Parsed ${expos.length} AU-Agenda exhibitions.`);
-  return expos;
+  console.log(`Parsed ${events.length} items from ${label}.`);
+  return events;
 }
 
 async function main() {
@@ -297,12 +307,24 @@ async function main() {
   });
   const page = await context.newPage();
 
+  // 1. Music (Songkick)
   const musicEvents = await scrapeSongkick(page);
-  const expoEvents = await scrapeAuAgendaExpos(page, context);
+
+  // 2. Exhibitions (AU-Agenda)
+  const expoEvents = await scrapeAuSection(page, context, 'Exposicions', 'exposicions', [
+    'https://au-agenda.com/exposicions/',
+    'https://au-agenda.com/exposicions/page/2/',
+  ]);
+
+  // 3. Stage & Theater (AU-Agenda)
+  const stageEvents = await scrapeAuSection(page, context, 'Escèniques', 'teatre', [
+    'https://au-agenda.com/esceniques/',
+    'https://au-agenda.com/esceniques/page/2/',
+  ]);
 
   await browser.close();
 
-  const combined = [...musicEvents, ...expoEvents];
+  const combined = [...musicEvents, ...expoEvents, ...stageEvents];
   console.log(`Total events consolidated: ${combined.length}`);
 
   const outDir = path.join(__dirname, 'public');
@@ -310,7 +332,15 @@ async function main() {
     fs.mkdirSync(outDir, { recursive: true });
   }
 
-  fs.writeFileSync(path.join(outDir, 'events.json'), JSON.stringify(combined, null, 2), 'utf-8');
+  const outPath = path.join(outDir, 'events.json');
+
+  // Safety: never overwrite good data with an empty file if network/scraping drops
+  if (combined.length === 0 && fs.existsSync(outPath)) {
+    console.warn('Scraper collected 0 events; keeping previous events.json to avoid downtime.');
+    return;
+  }
+
+  fs.writeFileSync(outPath, JSON.stringify(combined, null, 2), 'utf-8');
   console.log('Saved consolidated feed to public/events.json');
 }
 
