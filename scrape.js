@@ -5,6 +5,7 @@ const path = require('path');
 // Curated dictionary for Valencia museums, cultural centers, and theaters
 const KNOWN_VENUES = [
   // Major Museums & Cultural Centers
+  { pattern: /\bcahh\b|hortensia herrero/i, name: 'CAHH', address: 'Carrer del Mar, 31, 46003 València' },
   { pattern: /mubav|belles arts|bellas artes/i, name: 'Museu de Belles Arts de València (MuBAV)', address: 'Carrer de Sant Pius V, 9, 46010 València' },
   { pattern: /\bcccc\b|centre del carme/i, name: 'Centre del Carme (CCCC)', address: 'Carrer del Museu, 2, 46003 València' },
   { pattern: /\bivam\b/i, name: 'IVAM', address: 'Guillem de Castro, 118, 46003 València' },
@@ -47,7 +48,7 @@ const KNOWN_VENUES = [
 
 function toNaturalCase(str) {
   if (!str) return '';
-  if (/^(IVAM|CCCC|TEM|MUVIM)$/i.test(str)) return str.toUpperCase();
+  if (/^(IVAM|CCCC|TEM|MUVIM|CAHH)$/i.test(str)) return str.toUpperCase();
   const lowerWords = new Set(['de', 'del', "d'", 'd’', 'el', 'la', 'los', 'las', 'en', 'i', 'y', 'al', 'als']);
 
   return str
