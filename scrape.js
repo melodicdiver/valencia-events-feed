@@ -271,7 +271,7 @@ async function scrapeSongkick(page, context) {
           if (item.startDate) {
             const rawStart = new Date(item.startDate);
             if (!isNaN(rawStart.getTime())) {
-              // Convert to Europe/Madrid local wall-clock components
+              // Explicitly use hourCycle: 'h23' so midnight (00:00) outputs 0, not 24
               const formatter = new Intl.DateTimeFormat('en-US', {
                 timeZone: 'Europe/Madrid',
                 year: 'numeric',
@@ -279,7 +279,7 @@ async function scrapeSongkick(page, context) {
                 day: 'numeric',
                 hour: 'numeric',
                 minute: 'numeric',
-                hour12: false,
+                hourCycle: 'h23',
               });
               const parts = formatter.formatToParts(rawStart);
               const partMap = {};
@@ -292,8 +292,12 @@ async function scrapeSongkick(page, context) {
               const day = parseInt(partMap.day, 10);
               const hour = parseInt(partMap.hour, 10);
 
-              // If event start time is between 00:00 and 05:59 AM, it is culturally Friday night
-              if (hour >= 0 && hour < 6) {
+              // Nightlife Rule: Club sessions starting between 00:00 and 06:59 AM (or hour 24 in h24)
+              // belong culturally to the previous evening's bill (e.g. Friday night).
+              const isOvernightGig = hour === 24 || (hour >= 0 && hour < 7);
+
+              if (isOvernightGig) {
+                // Roll back to the evening of the show day
                 const shifted = new Date(Date.UTC(year, month - 1, day - 1, 20, 0, 0));
                 startDateIso = shifted.toISOString();
               } else {
@@ -389,7 +393,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
 
     const parsedDates = parseAuDateLine(headerMeta?.dateLine);
     const startDate = parsedDates?.startDate || now.toISOString();
-    const endDate = parsedDates?.endDate; // Undefined if single-day event
+    const endDate = parsedDates?.endDate; // Undefined for single-day events
 
     events.push({
       id: `au-${category}-${events.length + 1}-${Date.now()}`,
