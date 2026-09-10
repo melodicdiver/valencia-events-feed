@@ -218,127 +218,180 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
 }
 
 async function scrapeSongkick(page, context) {
-  console.log('Scraping Songkick (Música)...');
-  const targetUrl = 'https://www.songkick.com/metro-areas/28802-spain-valencia/this-month';
-  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  console.log('Scraping Songkick (Música - 31-Day Rolling Window)...');
 
-  const rawLdScripts = await page.$$eval('script[type="application/ld+json"]', (scripts) =>
-    scripts.map((s) => s.textContent || '')
-  );
+  const now = new Date();
+  // Cutoff is set to 31 days ahead at 23:59:59 UTC
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+  cutoffDate.setUTCHours(23, 59, 59, 999);
+
+  // Keep events from early today
+  const startFloor = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   const events = [];
+  const seenEventUrls = new Set();
+  const MAX_PAGES = 3;
 
-  for (const raw of rawLdScripts) {
+  for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
+    const targetUrl =
+      pageNum === 1
+        ? 'https://www.songkick.com/metro-areas/28802-spain-valencia'
+        : `https://www.songkick.com/metro-areas/28802-spain-valencia?page=${pageNum}`;
+
+    console.log(`Fetching Songkick page ${pageNum}: ${targetUrl}`);
+
     try {
-      const data = JSON.parse(raw);
-      const items = Array.isArray(data) ? data : [data];
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    } catch (err) {
+      console.warn(`Songkick navigation timeout on page ${pageNum}: ${err.message}`);
+      break;
+    }
 
-      for (const item of items) {
-        if (item['@type'] === 'MusicEvent') {
-          const venue = item.location?.name || 'València';
-          const address =
-            item.location?.address?.streetAddress ||
-            item.location?.address?.addressLocality ||
-            'València';
-          const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
-          const price = offer?.price ? `${offer.price}€` : undefined;
-          const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
+    const rawLdScripts = await page.$$eval('script[type="application/ld+json"]', (scripts) =>
+      scripts.map((s) => s.textContent || '')
+    );
 
-          let validImg = undefined;
-          if (rawImg && typeof rawImg === 'string') {
-            try {
-              const res = await context.request.get(rawImg, { maxRedirects: 5 });
-              const finalUrl = res.url();
-              const buffer = await res.body();
-              const isPlaceholder =
-                finalUrl.includes('default') ||
-                finalUrl.includes('placeholder') ||
-                finalUrl.includes('assets.sk-static.com') ||
-                buffer.length < 3500;
+    let foundEventsOnPage = 0;
+    let maxDateOnPage = 0;
 
-              if (res.ok() && !isPlaceholder) {
+    for (const raw of rawLdScripts) {
+      try {
+        const data = JSON.parse(raw);
+        const items = Array.isArray(data) ? data : [data];
+
+        for (const item of items) {
+          if (item['@type'] === 'MusicEvent') {
+            const eventUrl = item.url || '';
+            if (eventUrl && seenEventUrls.has(eventUrl)) {
+              continue;
+            }
+            if (eventUrl) {
+              seenEventUrls.add(eventUrl);
+            }
+
+            const venue = item.location?.name || 'València';
+            const address =
+              item.location?.address?.streetAddress ||
+              item.location?.address?.addressLocality ||
+              'València';
+            const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+            const price = offer?.price ? `${offer.price}€` : undefined;
+            const rawImg = Array.isArray(item.image) ? item.image[0] : item.image;
+
+            let validImg = undefined;
+            if (rawImg && typeof rawImg === 'string') {
+              try {
+                const res = await context.request.get(rawImg, { maxRedirects: 5 });
+                const finalUrl = res.url();
+                const buffer = await res.body();
+                const isPlaceholder =
+                  finalUrl.includes('default') ||
+                  finalUrl.includes('placeholder') ||
+                  finalUrl.includes('assets.sk-static.com') ||
+                  buffer.length < 3500;
+
+                if (res.ok() && !isPlaceholder) {
+                  validImg = rawImg;
+                }
+              } catch (_) {
                 validImg = rawImg;
               }
-            } catch (_) {
-              validImg = rawImg;
             }
-          }
 
-          // --- Exact Madrid Timezone & Nightlife Normalization ---
-          let startDateIso = new Date().toISOString();
-          let endDateIso = undefined;
+            // --- Madrid Timezone & Nightlife Normalization ---
+            let startDateIso = new Date().toISOString();
+            let endDateIso = undefined;
+            let finalEventDate = new Date();
 
-          if (item.startDate) {
-            const rawStart = new Date(item.startDate);
-            if (!isNaN(rawStart.getTime())) {
-              // Explicitly use hourCycle: 'h23' so midnight (00:00) outputs 0, not 24
-              const formatter = new Intl.DateTimeFormat('en-US', {
-                timeZone: 'Europe/Madrid',
-                year: 'numeric',
-                month: 'numeric',
-                day: 'numeric',
-                hour: 'numeric',
-                minute: 'numeric',
-                hourCycle: 'h23',
-              });
-              const parts = formatter.formatToParts(rawStart);
-              const partMap = {};
-              parts.forEach((p) => {
-                partMap[p.type] = p.value;
-              });
+            if (item.startDate) {
+              const rawStart = new Date(item.startDate);
+              if (!isNaN(rawStart.getTime())) {
+                const formatter = new Intl.DateTimeFormat('en-US', {
+                  timeZone: 'Europe/Madrid',
+                  year: 'numeric',
+                  month: 'numeric',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: 'numeric',
+                  hourCycle: 'h23',
+                });
+                const parts = formatter.formatToParts(rawStart);
+                const partMap = {};
+                parts.forEach((p) => {
+                  partMap[p.type] = p.value;
+                });
 
-              const year = parseInt(partMap.year, 10);
-              const month = parseInt(partMap.month, 10);
-              const day = parseInt(partMap.day, 10);
-              const hour = parseInt(partMap.hour, 10);
+                const year = parseInt(partMap.year, 10);
+                const month = parseInt(partMap.month, 10);
+                const day = parseInt(partMap.day, 10);
+                const hour = parseInt(partMap.hour, 10);
 
-              // Nightlife Rule: Club sessions starting between 00:00 and 06:59 AM (or hour 24 in h24)
-              // belong culturally to the previous evening's bill (e.g. Friday night).
-              const isOvernightGig = hour === 24 || (hour >= 0 && hour < 7);
+                // Nightlife Rule: Club sets 00:00 to 06:59 belong to previous night
+                const isOvernightGig = hour === 24 || (hour >= 0 && hour < 7);
 
-              if (isOvernightGig) {
-                // Roll back to the evening of the show day
-                const shifted = new Date(Date.UTC(year, month - 1, day - 1, 20, 0, 0));
-                startDateIso = shifted.toISOString();
-              } else {
-                const normalized = new Date(Date.UTC(year, month - 1, day, 20, 0, 0));
-                startDateIso = normalized.toISOString();
-              }
+                if (isOvernightGig) {
+                  finalEventDate = new Date(Date.UTC(year, month - 1, day - 1, 20, 0, 0));
+                } else {
+                  finalEventDate = new Date(Date.UTC(year, month - 1, day, 20, 0, 0));
+                }
+                startDateIso = finalEventDate.toISOString();
 
-              // Only keep endDate for true multi-day festivals (> 24 hours span)
-              if (item.endDate) {
-                const rawEnd = new Date(item.endDate);
-                if (!isNaN(rawEnd.getTime())) {
-                  const durationHours = (rawEnd.getTime() - rawStart.getTime()) / (1000 * 60 * 60);
-                  if (durationHours > 24) {
-                    endDateIso = rawEnd.toISOString();
+                // Multi-day check
+                if (item.endDate) {
+                  const rawEnd = new Date(item.endDate);
+                  if (!isNaN(rawEnd.getTime())) {
+                    const durationHours = (rawEnd.getTime() - rawStart.getTime()) / (1000 * 60 * 60);
+                    if (durationHours > 24) {
+                      endDateIso = rawEnd.toISOString();
+                    }
                   }
                 }
               }
             }
-          }
 
-          events.push({
-            id: `sk-${events.length + 1}-${Date.now()}`,
-            title: item.name || 'Concierto en Valencia',
-            description: `Concierto en directo en ${venue}`,
-            category: 'musica',
-            startDate: startDateIso,
-            endDate: endDateIso,
-            venueName: venue,
-            address: address,
-            imageUrl: validImg,
-            isFree: offer?.price === 0 || offer?.price === '0',
-            ticketPrice: price,
-            ticketUrl: offer?.url || item.url,
-            url: item.url || 'https://www.songkick.com',
-          });
+            // Track latest date seen on this page
+            if (finalEventDate.getTime() > maxDateOnPage) {
+              maxDateOnPage = finalEventDate.getTime();
+            }
+
+            // Strictly filter to the rolling 31-day window
+            if (finalEventDate < startFloor || finalEventDate > cutoffDate) {
+              continue;
+            }
+
+            foundEventsOnPage++;
+            events.push({
+              id: `sk-${events.length + 1}-${Date.now()}`,
+              title: item.name || 'Concierto en Valencia',
+              description: `Concierto en directo en ${venue}`,
+              category: 'musica',
+              startDate: startDateIso,
+              endDate: endDateIso,
+              venueName: venue,
+              address: address,
+              imageUrl: validImg,
+              isFree: offer?.price === 0 || offer?.price === '0',
+              ticketPrice: price,
+              ticketUrl: offer?.url || item.url,
+              url: item.url || 'https://www.songkick.com',
+            });
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
+
+    console.log(
+      `Page ${pageNum}: Ingested ${foundEventsOnPage} valid concerts within 31-day window.`
+    );
+
+    // If page events have exceeded cutoff, terminate pagination early
+    if (maxDateOnPage > cutoffDate.getTime()) {
+      console.log('Dates have exceeded 31-day window. Halting Songkick pagination.');
+      break;
+    }
   }
 
-  console.log(`Parsed ${events.length} Songkick concerts.`);
+  console.log(`Parsed ${events.length} total Songkick concerts in rolling window.`);
   return events;
 }
 
@@ -425,7 +478,7 @@ async function main() {
   });
   const page = await context.newPage();
 
-  // 1. Music (Songkick)
+  // 1. Music (Songkick - Rolling 31 Days)
   const musicEvents = await scrapeSongkick(page, context);
 
   // 2. Exhibitions (AU-Agenda)
