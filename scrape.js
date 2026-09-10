@@ -111,7 +111,7 @@ function parseAuDateLine(dateText) {
       y = yNum < 100 ? 2000 + yNum : yNum;
     }
     if (isNaN(d) || isNaN(m) || m < 1 || m > 12 || d < 1 || d > 31) return null;
-    const dt = new Date(Date.UTC(y, m - 1, d, 20, 0, 0));
+    const dt = new Date(Date.UTC(y, m - 1, d, 19, 0, 0));
     return isNaN(dt.getTime()) ? null : dt.toISOString();
   };
 
@@ -221,11 +221,9 @@ async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música - 31-Day Rolling Window)...');
 
   const now = new Date();
-  // Cutoff is set to 31 days ahead at 23:59:59 UTC
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   cutoffDate.setUTCHours(23, 59, 59, 999);
 
-  // Keep events from early today
   const startFloor = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   const events = [];
@@ -298,48 +296,30 @@ async function scrapeSongkick(page, context) {
               }
             }
 
-            // --- Madrid Timezone & Nightlife Normalization ---
+            // --- Robust Date Extraction Direct from YYYY-MM-DD ---
             let startDateIso = new Date().toISOString();
             let endDateIso = undefined;
-            let finalEventDate = new Date();
+            let eventDateObj = null;
 
             if (item.startDate) {
-              const rawStart = new Date(item.startDate);
-              if (!isNaN(rawStart.getTime())) {
-                const formatter = new Intl.DateTimeFormat('en-US', {
-                  timeZone: 'Europe/Madrid',
-                  year: 'numeric',
-                  month: 'numeric',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: 'numeric',
-                  hourCycle: 'h23',
-                });
-                const parts = formatter.formatToParts(rawStart);
-                const partMap = {};
-                parts.forEach((p) => {
-                  partMap[p.type] = p.value;
-                });
+              const rawStr = String(item.startDate).trim();
+              const match = rawStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
 
-                const year = parseInt(partMap.year, 10);
-                const month = parseInt(partMap.month, 10);
-                const day = parseInt(partMap.day, 10);
-                const hour = parseInt(partMap.hour, 10);
+              if (match) {
+                const y = parseInt(match[1], 10);
+                const m = parseInt(match[2], 10);
+                const d = parseInt(match[3], 10);
 
-                // Nightlife Rule: Club sets 00:00 to 06:59 belong to previous night
-                const isOvernightGig = hour === 24 || (hour >= 0 && hour < 7);
+                // Anchor at 19:00 UTC (21:00 CEST / 20:00 CET in Spain).
+                // Guarantees stable same-day parsing across all client environments without shifting.
+                eventDateObj = new Date(Date.UTC(y, m - 1, d, 19, 0, 0));
+                startDateIso = eventDateObj.toISOString();
 
-                if (isOvernightGig) {
-                  finalEventDate = new Date(Date.UTC(year, month - 1, day - 1, 20, 0, 0));
-                } else {
-                  finalEventDate = new Date(Date.UTC(year, month - 1, day, 20, 0, 0));
-                }
-                startDateIso = finalEventDate.toISOString();
-
-                // Multi-day check
+                // Multi-day festivals (> 24 hours span) only. Single-night club duration endDates are dropped.
                 if (item.endDate) {
                   const rawEnd = new Date(item.endDate);
-                  if (!isNaN(rawEnd.getTime())) {
+                  const rawStart = new Date(item.startDate);
+                  if (!isNaN(rawEnd.getTime()) && !isNaN(rawStart.getTime())) {
                     const durationHours = (rawEnd.getTime() - rawStart.getTime()) / (1000 * 60 * 60);
                     if (durationHours > 24) {
                       endDateIso = rawEnd.toISOString();
@@ -349,13 +329,13 @@ async function scrapeSongkick(page, context) {
               }
             }
 
-            // Track latest date seen on this page
-            if (finalEventDate.getTime() > maxDateOnPage) {
-              maxDateOnPage = finalEventDate.getTime();
+            if (!eventDateObj) continue;
+
+            if (eventDateObj.getTime() > maxDateOnPage) {
+              maxDateOnPage = eventDateObj.getTime();
             }
 
-            // Strictly filter to the rolling 31-day window
-            if (finalEventDate < startFloor || finalEventDate > cutoffDate) {
+            if (eventDateObj < startFloor || eventDateObj > cutoffDate) {
               continue;
             }
 
@@ -384,7 +364,6 @@ async function scrapeSongkick(page, context) {
       `Page ${pageNum}: Ingested ${foundEventsOnPage} valid concerts within 31-day window.`
     );
 
-    // If page events have exceeded cutoff, terminate pagination early
     if (maxDateOnPage > cutoffDate.getTime()) {
       console.log('Dates have exceeded 31-day window. Halting Songkick pagination.');
       break;
@@ -446,7 +425,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
 
     const parsedDates = parseAuDateLine(headerMeta?.dateLine);
     const startDate = parsedDates?.startDate || now.toISOString();
-    const endDate = parsedDates?.endDate; // Undefined for single-day events
+    const endDate = parsedDates?.endDate;
 
     events.push({
       id: `au-${category}-${events.length + 1}-${Date.now()}`,
