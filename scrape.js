@@ -162,7 +162,7 @@ function parseAuDateLine(dateText) {
   const singleDate = clean.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
   if (singleDate) {
     const iso = toIso(singleDate[1], singleDate[2], singleDate[3]);
-    if (iso) return { startDate: iso, endDate: iso };
+    if (iso) return { startDate: iso, endDate: undefined };
   }
 
   return null;
@@ -264,13 +264,63 @@ async function scrapeSongkick(page, context) {
             }
           }
 
+          // --- Exact Madrid Timezone & Nightlife Normalization ---
+          let startDateIso = new Date().toISOString();
+          let endDateIso = undefined;
+
+          if (item.startDate) {
+            const rawStart = new Date(item.startDate);
+            if (!isNaN(rawStart.getTime())) {
+              // Convert to Europe/Madrid local wall-clock components
+              const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Europe/Madrid',
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: false,
+              });
+              const parts = formatter.formatToParts(rawStart);
+              const partMap = {};
+              parts.forEach((p) => {
+                partMap[p.type] = p.value;
+              });
+
+              const year = parseInt(partMap.year, 10);
+              const month = parseInt(partMap.month, 10);
+              const day = parseInt(partMap.day, 10);
+              const hour = parseInt(partMap.hour, 10);
+
+              // If event start time is between 00:00 and 05:59 AM, it is culturally Friday night
+              if (hour >= 0 && hour < 6) {
+                const shifted = new Date(Date.UTC(year, month - 1, day - 1, 20, 0, 0));
+                startDateIso = shifted.toISOString();
+              } else {
+                const normalized = new Date(Date.UTC(year, month - 1, day, 20, 0, 0));
+                startDateIso = normalized.toISOString();
+              }
+
+              // Only keep endDate for true multi-day festivals (> 24 hours span)
+              if (item.endDate) {
+                const rawEnd = new Date(item.endDate);
+                if (!isNaN(rawEnd.getTime())) {
+                  const durationHours = (rawEnd.getTime() - rawStart.getTime()) / (1000 * 60 * 60);
+                  if (durationHours > 24) {
+                    endDateIso = rawEnd.toISOString();
+                  }
+                }
+              }
+            }
+          }
+
           events.push({
             id: `sk-${events.length + 1}-${Date.now()}`,
             title: item.name || 'Concierto en Valencia',
             description: `Concierto en directo en ${venue}`,
             category: 'musica',
-            startDate: item.startDate ? new Date(item.startDate).toISOString() : new Date().toISOString(),
-            endDate: item.endDate ? new Date(item.endDate).toISOString() : undefined,
+            startDate: startDateIso,
+            endDate: endDateIso,
             venueName: venue,
             address: address,
             imageUrl: validImg,
@@ -339,7 +389,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
 
     const parsedDates = parseAuDateLine(headerMeta?.dateLine);
     const startDate = parsedDates?.startDate || now.toISOString();
-    const endDate = parsedDates?.endDate || new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    const endDate = parsedDates?.endDate; // Undefined if single-day event
 
     events.push({
       id: `au-${category}-${events.length + 1}-${Date.now()}`,
