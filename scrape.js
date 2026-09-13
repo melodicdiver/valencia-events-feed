@@ -490,7 +490,6 @@ async function scrapeFdmValencia(page) {
   console.log('Scraping FDM València events...');
   const events = [];
   const now = new Date();
-  const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
   try {
@@ -498,20 +497,20 @@ async function scrapeFdmValencia(page) {
       waitUntil: 'domcontentloaded', 
       timeout: 35000 
     });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3000);
 
     const rawItems = await page.evaluate(() => {
       const results = [];
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const cards = Array.from(document.querySelectorAll('article, .post, .entry, [class*="evento"], [class*="event"], li'));
+      const items = Array.from(document.querySelectorAll('article, .post, .entry, [class*="evento"], [class*="event"], li, div.card, div.box'));
 
-      for (const card of cards) {
-        const titleEl = card.querySelector('h2, h3, h4, .entry-title, a');
-        const linkEl = card.querySelector('a[href*="/eventos/"]');
-        
-        if (!titleEl || !linkEl) continue;
+      for (const el of items) {
+        const linkEl = el.querySelector('a[href*="/eventos/"]');
+        const titleEl = el.querySelector('h2, h3, h4, .entry-title, .title, strong') || linkEl;
+
+        if (!linkEl || !titleEl) continue;
 
         const title = titleEl.innerText.trim();
         const href = linkEl.href.trim();
@@ -529,25 +528,22 @@ async function scrapeFdmValencia(page) {
           continue;
         }
 
-        const containerText = card.innerText || '';
-        const hasDate = /\b(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)\b/i.test(containerText);
+        const containerText = el.innerText || '';
+        const normTitle = title.toLowerCase();
 
-        if (hasDate) {
-          const normTitle = title.toLowerCase();
-          if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
-          seenUrls.add(href);
-          seenTitles.add(normTitle);
+        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
+        seenUrls.add(href);
+        seenTitles.add(normTitle);
 
-          const img = card.querySelector('img');
-          const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
+        const img = el.querySelector('img');
+        const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
 
-          results.push({
-            title: title,
-            rawText: containerText,
-            url: href,
-            img: imgSrc && !imgSrc.includes('spacer') && !imgSrc.includes('pixel') && !imgSrc.includes('logo') ? imgSrc : null,
-          });
-        }
+        results.push({
+          title: title,
+          rawText: containerText,
+          url: href,
+          img: imgSrc && !imgSrc.includes('spacer') && !imgSrc.includes('pixel') && !imgSrc.includes('logo') ? imgSrc : null,
+        });
       }
 
       return results;
@@ -658,7 +654,7 @@ async function scrapeSports(page) {
     console.warn(`Live Valencia CF tickets skipped: ${err.message}`);
   }
 
-  // B. Verified Match Fixtures with Direct Match Endpoints
+  // B. Verified Match Fixtures with Direct Match Endpoints (Valencia Basket links to Calendar view)
   const OFFICIAL_SCHEDULE = [
     {
       title: 'Levante UD vs FC Barcelona',
@@ -703,7 +699,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 27, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
     },
     {
       title: 'Valencia Basket vs Saski Baskonia',
@@ -712,7 +708,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 29, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
     },
     {
       title: 'Valencia Basket vs Hapoel Tel Aviv',
@@ -721,7 +717,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 8, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
     },
     {
       title: 'Valencia Basket vs Olympiacos Piraeus',
@@ -730,7 +726,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 13, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
     },
     {
       title: 'Valencia Basket vs Maccabi Tel Aviv',
@@ -739,7 +735,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 15, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
     },
   ];
 
