@@ -282,9 +282,9 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
   };
 }
 
+// 1. Music (Songkick)
 async function scrapeSongkick(page, context) {
-  console.log('Scraping Songkick (Música - 31-Day Rolling Window)...');
-
+  console.log('Scraping Songkick (Música)...');
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
   cutoffDate.setUTCHours(23, 59, 59, 999);
@@ -303,7 +303,7 @@ async function scrapeSongkick(page, context) {
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     } catch (err) {
-      console.warn(`Songkick navigation timeout on page ${pageNum}: ${err.message}`);
+      console.warn(`Songkick timeout: ${err.message}`);
       break;
     }
 
@@ -311,7 +311,6 @@ async function scrapeSongkick(page, context) {
       scripts.map((s) => s.textContent || '')
     );
 
-    let foundEventsOnPage = 0;
     let maxDateOnPage = 0;
 
     for (const raw of rawLdScripts) {
@@ -357,37 +356,27 @@ async function scrapeSongkick(page, context) {
             let eventDateObj = null;
 
             if (item.startDate) {
-              const rawStr = String(item.startDate).trim();
-              const match = rawStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
+              const match = String(item.startDate).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
               if (match) {
-                const y = parseInt(match[1], 10);
-                const m = parseInt(match[2], 10);
-                const d = parseInt(match[3], 10);
-
-                eventDateObj = new Date(Date.UTC(y, m - 1, d, 19, 0, 0));
+                eventDateObj = new Date(Date.UTC(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10), 19, 0, 0));
                 startDateIso = eventDateObj.toISOString();
 
                 if (item.endDate) {
                   const rawEnd = new Date(item.endDate);
                   const rawStart = new Date(item.startDate);
                   if (!isNaN(rawEnd.getTime()) && !isNaN(rawStart.getTime())) {
-                    const durationHours = (rawEnd.getTime() - rawStart.getTime()) / (1000 * 60 * 60);
-                    if (durationHours > 24) endDateIso = rawEnd.toISOString();
+                    if ((rawEnd.getTime() - rawStart.getTime()) / (1000 * 60 * 60) > 24) {
+                      endDateIso = rawEnd.toISOString();
+                    }
                   }
                 }
               }
             }
 
             if (!eventDateObj) continue;
-
-            if (eventDateObj.getTime() > maxDateOnPage) {
-              maxDateOnPage = eventDateObj.getTime();
-            }
-
+            if (eventDateObj.getTime() > maxDateOnPage) maxDateOnPage = eventDateObj.getTime();
             if (eventDateObj < startFloor || eventDateObj > cutoffDate) continue;
 
-            foundEventsOnPage++;
             events.push({
               id: `sk-${events.length + 1}-${Date.now()}`,
               title: item.name || 'Concierto en Valencia',
@@ -415,6 +404,7 @@ async function scrapeSongkick(page, context) {
   return events;
 }
 
+// 2. Cultural Agenda (AU-Agenda)
 async function scrapeAuSection(page, context, label, category, urls) {
   console.log(`Scraping AU-Agenda (${label})...`);
   const rawCards = [];
@@ -485,9 +475,9 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// 4. Robust Live Scraper for Fundación Deportiva Municipal (FDM València)
+// 3. Live Scraper for Fundación Deportiva Municipal (FDM València)
 async function scrapeFdmValencia(page) {
-  console.log('Scraping FDM València events...');
+  console.log('Scraping FDM València events dynamically...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
@@ -504,46 +494,56 @@ async function scrapeFdmValencia(page) {
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const items = Array.from(document.querySelectorAll('article, .post, .entry, [class*="evento"], [class*="event"], li, div.card, div.box'));
+      const allElements = Array.from(document.querySelectorAll('body *'));
 
-      for (const el of items) {
-        const linkEl = el.querySelector('a[href*="/eventos/"]');
-        const titleEl = el.querySelector('h2, h3, h4, .entry-title, .title, strong') || linkEl;
+      for (const el of allElements) {
+        if (el.children && el.children.length > 0) continue;
+        const text = (el.innerText || el.textContent || '').trim();
 
-        if (!linkEl || !titleEl) continue;
+        // Detect lines like "20 Sep 2026 | 9:00 - 12:00" or "13 Sep 2026 - 20 Sep 2026"
+        const dateMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre)\s+(\d{4})\b/i);
+        if (!dateMatch || text.length > 70) continue;
 
-        const title = titleEl.innerText.trim();
-        const href = linkEl.href.trim();
+        // Climb to row container
+        let container = el.parentElement;
+        for (let depth = 0; depth < 5 && container && container !== document.body; depth++) {
+          const links = Array.from(container.querySelectorAll('a'));
+          const validLink = links.find((a) => {
+            const txt = (a.innerText || '').trim();
+            const h = (a.href || '').trim();
+            return (
+              txt.length >= 6 &&
+              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más)$/i.test(txt) &&
+              !h.includes('aviso') &&
+              !h.includes('cookies') &&
+              !h.includes('privacidad')
+            );
+          });
 
-        if (
-          !href || 
-          title.length < 5 || 
-          href.includes('?') || 
-          href.includes('&') || 
-          href.endsWith('/es/eventos/') || 
-          href.endsWith('/es/eventos') ||
-          /aviso-legal|privacidad|cookies|mapa-web|contacto|quienes-somos|colaboradores|legal|politica/i.test(href) ||
-          /^(aviso legal|política|cookies|mapa web|contacto|inicio|agenda|instalaciones|comunicación|valencia|buscar)$/i.test(title)
-        ) {
-          continue;
+          if (validLink) {
+            const title = validLink.innerText.trim();
+            const href = validLink.href.trim();
+            const normTitle = title.toLowerCase();
+
+            if (!seenUrls.has(href) && !seenTitles.has(normTitle)) {
+              seenUrls.add(href);
+              seenTitles.add(normTitle);
+
+              const img = container.querySelector('img');
+              const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
+
+              results.push({
+                title,
+                dateText: text,
+                containerText: container.innerText || '',
+                url: href,
+                img: imgSrc && !imgSrc.includes('pixel') && !imgSrc.includes('spacer') ? imgSrc : null,
+              });
+            }
+            break;
+          }
+          container = container.parentElement;
         }
-
-        const containerText = el.innerText || '';
-        const normTitle = title.toLowerCase();
-
-        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
-        seenUrls.add(href);
-        seenTitles.add(normTitle);
-
-        const img = el.querySelector('img');
-        const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
-
-        results.push({
-          title: title,
-          rawText: containerText,
-          url: href,
-          img: imgSrc && !imgSrc.includes('spacer') && !imgSrc.includes('pixel') && !imgSrc.includes('logo') ? imgSrc : null,
-        });
       }
 
       return results;
@@ -553,11 +553,15 @@ async function scrapeFdmValencia(page) {
       let startDateIso = null;
       let endDateIso = undefined;
 
-      const singleIso = extractDateFromAnyText(item.rawText);
-      if (singleIso) startDateIso = singleIso;
+      const range = item.dateText.match(/(\d{1,2})\s+([a-z]{3,})\s+(\d{4})\s*[-–—]\s*(\d{1,2})\s+([a-z]{3,})\s+(\d{4})/i);
+      if (range) {
+        startDateIso = parseSpanishDateToIso(range[1], range[2], range[3]);
+        endDateIso = parseSpanishDateToIso(range[4], range[5], range[6]) || undefined;
+      } else {
+        startDateIso = extractDateFromAnyText(item.dateText);
+      }
 
       if (!startDateIso) continue;
-
       const dt = new Date(startDateIso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
@@ -591,15 +595,113 @@ async function scrapeFdmValencia(page) {
   return events;
 }
 
-// 5. Consolidated Club Fixtures with Match-Level Ticketing Links
-async function scrapeSports(page) {
-  console.log('Ingesting verified sports fixtures...');
+// 4. Live Scraper for Valencia Basket
+async function scrapeValenciaBasket(page) {
+  console.log('Scraping Valencia Basket live calendar dynamically...');
   const events = [];
   const now = new Date();
   const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const CALENDAR_URL = 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home';
 
-  // A. Live Valencia CF Tickets (Seat Selector)
+  try {
+    await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(3000);
+
+    const matches = await page.evaluate(() => {
+      const items = [];
+      const blocks = Array.from(document.querySelectorAll('div, tr, li, article'));
+
+      for (const el of blocks) {
+        const text = el.innerText || '';
+        if (
+          /valencia\s+(?:basket|bc)/i.test(text) &&
+          /\b\d{1,2}\s+(?:ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.?\s+\d{1,2}:\d{2}/i.test(text)
+        ) {
+          const children = el.querySelectorAll('*');
+          let isDeepest = true;
+          for (const c of children) {
+            if (
+              /valencia\s+(?:basket|bc)/i.test(c.innerText || '') &&
+              /\b\d{1,2}\s+(?:ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.?\s+\d{1,2}:\d{2}/i.test(c.innerText || '')
+            ) {
+              isDeepest = false;
+              break;
+            }
+          }
+
+          if (isDeepest) {
+            const btn = el.querySelector('a[href*="entradas"], a[href*="ticket"], a');
+            items.push({
+              rawText: text,
+              link: btn ? btn.href : null,
+            });
+          }
+        }
+      }
+      return items;
+    });
+
+    for (const m of matches) {
+      const dateMatch = m.rawText.match(/(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.?\s+(\d{1,2}:\d{2})/i);
+      if (!dateMatch) continue;
+
+      const iso = parseSpanishDateToIso(dateMatch[1], dateMatch[2], currentYear);
+      if (!iso) continue;
+
+      const dt = new Date(iso);
+      if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+      const lines = m.rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+      let opponent = '';
+
+      for (let i = 0; i < lines.length; i++) {
+        if (/valencia\s+(?:basket|bc)/i.test(lines[i])) {
+          for (let j = i + 1; j < lines.length; j++) {
+            const candidate = lines[j];
+            if (
+              !/valencia|entradas|vip|\d{1,2}\s+[a-z]+|\d{1,2}:\d{2}|liga|euroleague|masculino|femenino|endesa/i.test(candidate) &&
+              candidate.length >= 3
+            ) {
+              opponent = candidate;
+              break;
+            }
+          }
+          break;
+        }
+      }
+
+      if (!opponent) opponent = 'Partido Oficial';
+
+      events.push({
+        id: `vbc-${events.length + 1}-${Date.now()}`,
+        title: `Valencia Basket vs ${toNaturalCase(opponent)}`,
+        description: `Partido oficial de baloncesto en el Roig Arena frente al ${opponent}`,
+        category: 'esports',
+        startDate: iso,
+        venueName: 'Roig Arena',
+        address: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
+        imageUrl: SPORTS_IMAGES.basket,
+        isFree: false,
+        ticketUrl: CALENDAR_URL,
+        url: CALENDAR_URL,
+      });
+    }
+  } catch (err) {
+    console.warn(`Valencia Basket dynamic scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} live Valencia Basket matches.`);
+  return events;
+}
+
+// 5. Live Scraper for Valencia CF
+async function scrapeValenciaCF(page) {
+  console.log('Scraping Valencia CF live ticketing...');
+  const events = [];
+  const now = new Date();
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+
   try {
     await page.goto('https://www.valenciacf.com/tickets', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForTimeout(2000);
@@ -651,121 +753,78 @@ async function scrapeSports(page) {
       });
     }
   } catch (err) {
-    console.warn(`Live Valencia CF tickets skipped: ${err.message}`);
+    console.warn(`Valencia CF live scrape notice: ${err.message}`);
   }
 
-  // B. Verified Match Fixtures with Direct Match Endpoints (Valencia Basket links to Calendar view)
-  const OFFICIAL_SCHEDULE = [
-    {
-      title: 'Levante UD vs FC Barcelona',
-      desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al FC Barcelona',
-      venue: 'Ciutat de València',
-      addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
-      day: 13, month: 9,
-      img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-fc-barcelona-1',
-    },
-    {
-      title: 'Levante UD vs Athletic Club',
-      desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al Athletic Club',
-      venue: 'Ciutat de València',
-      addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
-      day: 16, month: 9,
-      img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-athletic-club-1',
-    },
-    {
-      title: 'Levante UD vs Sevilla FC',
-      desc: 'Partido de LaLiga en el Estadi Ciutat de València frente al Sevilla FC',
-      venue: 'Ciutat de València',
-      addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
-      day: 12, month: 10,
-      img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-sevilla-fc-1',
-    },
-    {
-      title: 'Valencia CF vs Real Sociedad',
-      desc: 'Partido oficial de LaLiga en el Camp de Mestalla frente a la Real Sociedad',
-      venue: 'Estadio de Mestalla',
-      addr: 'Avinguda de Suècia, s/n, 46010 València',
-      day: 20, month: 9,
-      img: SPORTS_IMAGES.vcf,
-      url: 'https://entradas.valenciacf.com/valenciacf_vip/select/2964324?hl=en-US',
-    },
-    {
-      title: 'Valencia Basket vs Força Lleida',
-      desc: 'Jornada 1 de la Liga ACB en el Roig Arena de València frente al Força Lleida',
-      venue: 'Roig Arena',
-      addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
-      day: 27, month: 9,
-      img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
-    },
-    {
-      title: 'Valencia Basket vs Saski Baskonia',
-      desc: 'Partido de competición oficial en el Roig Arena frente al Baskonia',
-      venue: 'Roig Arena',
-      addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
-      day: 29, month: 9,
-      img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
-    },
-    {
-      title: 'Valencia Basket vs Hapoel Tel Aviv',
-      desc: 'Jornada 4 de la EuroLeague en el Roig Arena frente al Hapoel IBI Tel Aviv',
-      venue: 'Roig Arena',
-      addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
-      day: 8, month: 10,
-      img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
-    },
-    {
-      title: 'Valencia Basket vs Olympiacos Piraeus',
-      desc: 'Jornada 5 de la EuroLeague en el Roig Arena frente al Olympiacos',
-      venue: 'Roig Arena',
-      addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
-      day: 13, month: 10,
-      img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
-    },
-    {
-      title: 'Valencia Basket vs Maccabi Tel Aviv',
-      desc: 'Jornada 6 de la EuroLeague en el Roig Arena frente al Maccabi Rapyd Tel Aviv',
-      venue: 'Roig Arena',
-      addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
-      day: 15, month: 10,
-      img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home',
-    },
-  ];
+  console.log(`Ingested ${events.length} live Valencia CF matches.`);
+  return events;
+}
 
-  for (const item of OFFICIAL_SCHEDULE) {
-    const iso = parseSpanishDateToIso(item.day, item.month, currentYear);
-    if (!iso) continue;
+// 6. Live Scraper for Levante UD
+async function scrapeLevanteUD(page) {
+  console.log('Scraping Levante UD live ticketing...');
+  const events = [];
+  const now = new Date();
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
-    const dt = new Date(iso);
-    if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
-      const alreadyExists = events.some(
-        (e) => e.title.toLowerCase().trim() === item.title.toLowerCase().trim()
-      );
-      if (!alreadyExists) {
-        events.push({
-          id: `sport-${item.day}-${item.month}-${Date.now()}`,
-          title: item.title,
-          description: item.desc,
-          category: 'esports',
-          startDate: iso,
-          venueName: item.venue,
-          address: item.addr,
-          imageUrl: item.img,
-          isFree: false,
-          ticketUrl: item.url,
-          url: item.url,
-        });
+  try {
+    await page.goto('https://ticketing.levanteud.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(2000);
+
+    const matches = await page.evaluate(() => {
+      const items = [];
+      const links = Array.from(document.querySelectorAll('a[href*="/liga-"], a[href*="/entradas/"], a[href*="levante"]'));
+      const seen = new Set();
+
+      for (const a of links) {
+        const href = a.href;
+        if (seen.has(href) || href.includes('javascript') || href.endsWith('.pdf')) continue;
+
+        const container = a.closest('article, [class*="card"], [class*="item"], div') || a;
+        const text = container.innerText || '';
+
+        if (/Levante/i.test(text) && (/vs\.?|x\s+/i.test(text) || /entradas|comprar/i.test(text))) {
+          seen.add(href);
+          items.push({
+            href,
+            rawText: text,
+          });
+        }
       }
+      return items;
+    });
+
+    for (const m of matches) {
+      const iso = extractDateFromAnyText(m.rawText);
+      if (!iso) continue;
+      const dt = new Date(iso);
+      if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+      let opponent = 'LaLiga Match';
+      const matchTitle = m.rawText.match(/Levante(?:\s+UD)?\s+(?:vs\.?|x|-)\s+([A-Za-zÁ-ÿ\s]+)/i);
+      if (matchTitle) {
+        opponent = matchTitle[1].split('\n')[0].trim();
+      }
+
+      events.push({
+        id: `lud-${events.length + 1}-${Date.now()}`,
+        title: `Levante UD vs ${toNaturalCase(opponent)}`,
+        description: `Partido oficial de LaLiga en el Estadi Ciutat de València frente al ${opponent}`,
+        category: 'esports',
+        startDate: iso,
+        venueName: 'Ciutat de València',
+        address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
+        imageUrl: SPORTS_IMAGES.lud,
+        isFree: false,
+        ticketUrl: m.href,
+        url: m.href,
+      });
     }
+  } catch (err) {
+    console.warn(`Levante UD live scrape notice: ${err.message}`);
   }
 
+  console.log(`Ingested ${events.length} live Levante UD matches.`);
   return events;
 }
 
@@ -788,16 +847,17 @@ async function main() {
     'https://au-agenda.com/esceniques/page/2/',
   ]).catch(() => []);
   const fdmEvents = await scrapeFdmValencia(page).catch(() => []);
-  const sportsEvents = await scrapeSports(page).catch((err) => {
-    console.error('Sports ingestion failed:', err);
-    return [];
-  });
+  const vbcEvents = await scrapeValenciaBasket(page).catch(() => []);
+  const vcfEvents = await scrapeValenciaCF(page).catch(() => []);
+  const ludEvents = await scrapeLevanteUD(page).catch(() => []);
 
   await browser.close();
 
   const combined = [
-    ...sportsEvents,
     ...fdmEvents,
+    ...vbcEvents,
+    ...vcfEvents,
+    ...ludEvents,
     ...musicEvents,
     ...expoEvents,
     ...stageEvents,
