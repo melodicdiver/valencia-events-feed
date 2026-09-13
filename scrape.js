@@ -286,7 +286,7 @@ async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música - 31-Day Rolling Window)...');
 
   const now = new Date();
-  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
   cutoffDate.setUTCHours(23, 59, 59, 999);
   const startFloor = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -485,7 +485,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// Live scraping of Fundación Deportiva Municipal (FDM Valencia)
+// Live scraping of Fundación Deportiva Municipal (FDM Valencia) with strict title validation
 async function scrapeFdmValencia(page) {
   console.log('Scraping FDM València (https://www.fdmvalencia.es/es/eventos/)...');
   const events = [];
@@ -498,21 +498,28 @@ async function scrapeFdmValencia(page) {
 
     const rawItems = await page.evaluate(() => {
       const results = [];
-      const cards = document.querySelectorAll('article, .event, .evento, [class*="event-item"], .entry-item');
+      const cards = document.querySelectorAll('article, .entry, .post, [class*="evento-card"]');
 
       cards.forEach((c) => {
-        const titleEl = c.querySelector('h2, h3, h4, .title, a');
+        const titleEl = c.querySelector('h2.entry-title, h3.entry-title, .entry-title a, h2 a, h3 a');
         const linkEl = c.querySelector('a');
         const imgEl = c.querySelector('img');
         const text = c.innerText || '';
 
-        if (titleEl && titleEl.innerText.trim().length > 3) {
-          results.push({
-            title: titleEl.innerText.trim(),
-            rawText: text,
-            url: linkEl ? linkEl.href : 'https://www.fdmvalencia.es/es/eventos/',
-            img: imgEl ? imgEl.src : null,
-          });
+        if (titleEl) {
+          const rawTitle = titleEl.innerText.trim();
+          // Filter out generic navigation headers and non-event UI titles
+          if (
+            rawTitle.length >= 6 &&
+            !/^(event|evento|eventos|agenda|mes|ano|año|dia|día|buscar|filtrar)$/i.test(rawTitle)
+          ) {
+            results.push({
+              title: rawTitle,
+              rawText: text,
+              url: linkEl ? linkEl.href : 'https://www.fdmvalencia.es/es/eventos/',
+              img: imgEl ? imgEl.src : null,
+            });
+          }
         }
       });
       return results;
@@ -542,7 +549,7 @@ async function scrapeFdmValencia(page) {
     console.warn(`FDM València live scrape notice: ${err.message}`);
   }
 
-  console.log(`Collected ${events.length} live events from FDM València.`);
+  console.log(`Collected ${events.length} verified live events from FDM València.`);
   return events;
 }
 
@@ -743,7 +750,6 @@ async function scrapeSports(page) {
 
     const dt = new Date(iso);
     if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
-      // Deduplicate by title rather than by date so multiple sports on the same day are retained
       const alreadyExists = events.some(
         (e) => e.title.toLowerCase().trim() === item.title.toLowerCase().trim()
       );
@@ -805,10 +811,17 @@ async function main() {
 
   console.log(`Total events consolidated: ${combined.length}`);
 
-  // Deduplication by normalized title and date
+  // Deduplicate and filter out single-word generic artifact titles
   const seen = new Map();
   for (const ev of combined) {
-    const key = `${ev.title.toLowerCase().trim()}_${(ev.startDate || '').slice(0, 10)}`;
+    const cleanTitle = (ev.title || '').trim();
+    if (
+      cleanTitle.length < 4 ||
+      /^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)
+    ) {
+      continue;
+    }
+    const key = `${cleanTitle.toLowerCase()}_${(ev.startDate || '').slice(0, 10)}`;
     if (!seen.has(key)) seen.set(key, ev);
   }
 
