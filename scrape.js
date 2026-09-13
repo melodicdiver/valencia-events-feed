@@ -1,4 +1,3 @@
-```javascript
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -16,7 +15,7 @@ const KNOWN_VENUES = [
   { pattern: /reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
   { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
   { pattern: /caixaforum/i, name: 'CaixaForum València', address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València' },
-  { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
+  { pattern: /la нау/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
   { pattern: /muvim/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
   { pattern: /bot[aà]nic/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
   { pattern: /drassanes/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
@@ -52,7 +51,7 @@ const KNOWN_VENUES = [
 const MONTH_MAP = {
   ene: 1, ener: 1, enero: 1, gen: 1, gener: 1,
   feb: 2, febr: 2, febrero: 2, febrer: 2,
-  mar: 3, marzo: 3, març: 3,
+  mar: 3, marzo: 3, marc: 3, març: 3,
   abr: 4, abril: 4,
   may: 5, mayo: 5, mai: 5, maig: 5,
   jun: 6, junio: 6, juny: 6,
@@ -63,8 +62,6 @@ const MONTH_MAP = {
   nov: 11, novi: 11, noviembre: 11, novembre: 11,
   dic: 12, des: 12, dici: 12, diciembre: 12, desembre: 12,
 };
-
-const SPANISH_MONTH_NAMES = Object.keys(MONTH_MAP).join('|');
 
 function stripAccents(str) {
   return (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -92,11 +89,11 @@ function parseSpanishDateToIso(dayStr, monthStr, yearStr) {
   let m = NaN;
 
   if (monthStr) {
-    const cleanM = monthStr.toLowerCase().trim().replace('.', '');
+    const cleanM = stripAccents(monthStr.toLowerCase().trim().replace('.', ''));
     if (/^\d+$/.test(cleanM)) {
       m = parseInt(cleanM, 10);
     } else {
-      m = MONTH_MAP[cleanM.slice(0, 4)] || MONTH_MAP[cleanM.slice(0, 3)] || NaN;
+      m = MONTH_MAP[cleanM] || MONTH_MAP[cleanM.slice(0, 4)] || MONTH_MAP[cleanM.slice(0, 3)] || NaN;
     }
   }
 
@@ -114,8 +111,8 @@ function parseSpanishDateToIso(dayStr, monthStr, yearStr) {
 function extractDateFromAnyText(text) {
   if (!text) return null;
 
-  const namedRegex = new RegExp(`\\b(\\d{1,2})\\s+(?:de\\s+)?(${SPANISH_MONTH_NAMES})\\b(?:\\s+(?:de\\s+)?(\\d{4}))?`, 'i');
-  const namedMatch = text.match(namedRegex);
+  // Direct regex literal with all month spellings
+  const namedMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre|gener|febrer|març|marc|maig|juny|juliol|agost|desembre|ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic|des)\b(?:\s+(?:de\s+)?(\d{4}))?/i);
   if (namedMatch) {
     const iso = parseSpanishDateToIso(namedMatch[1], namedMatch[2], namedMatch[3]);
     if (iso) return iso;
@@ -290,7 +287,7 @@ async function scrapeSongkick(page, context) {
     const targetUrl =
       pageNum === 1
         ? 'https://www.songkick.com/metro-areas/28802-spain-valencia'
-        : `https://www.songkick.com/metro-areas/28802-spain-valencia?page=${pageNum}`;
+        : 'https://www.songkick.com/metro-areas/28802-spain-valencia?page=' + pageNum;
 
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -525,7 +522,6 @@ async function scrapeValenciaCF(page, context) {
         }
       }
 
-      // Check if image is a generic SVG icon; if so, provide fallback stadium photo
       const isValidPhoto = m.img && !m.img.endsWith('.svg') && !m.img.includes('ico-laliga');
 
       events.push({
@@ -559,7 +555,6 @@ async function scrapeValenciaCF(page, context) {
         const homeTeam = competitors.find((c) => c.homeAway === 'home');
         const awayTeam = competitors.find((c) => c.homeAway === 'away');
 
-        // Mestalla HOME matches only
         if (homeTeam && homeTeam.team?.id === '98') {
           const dateStr = ev.date;
           const dt = new Date(dateStr);
@@ -569,7 +564,6 @@ async function scrapeValenciaCF(page, context) {
             const ticketLink = ev.links?.find((l) => l.rel?.includes('tickets'))?.href || 'https://www.valenciacf.com/tickets';
             const logo = awayTeam?.team?.logos?.[0]?.href;
 
-            // Avoid duplicating if Strategy A already found it
             const alreadyExists = events.some((e) => e.startDate.slice(0, 10) === iso.slice(0, 10));
             if (!alreadyExists) {
               events.push({
@@ -664,62 +658,47 @@ async function scrapeLevanteUD(page, context) {
     console.warn(`Levante UD calendar skipped: ${err.message}`);
   }
 
-  // Strategy B: Ticketing Portal
+  // Strategy B: Schedule Feed Fallback
   if (events.length === 0) {
     try {
-      await page.goto('https://ticketing.levanteud.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
-      await page.waitForTimeout(2000);
+      const res = await context.request.get('https://site.api.espn.com/apis/site/v2/sports/soccer/esp.2/teams/94/schedule', { timeout: 15000 });
+      if (res.ok()) {
+        const json = await res.json();
+        const rawEvents = json.events || [];
 
-      const ticketMatches = await page.evaluate(() => {
-        const items = [];
-        const cards = document.querySelectorAll('article, .event-card, .match-card, [class*="card"]');
-        cards.forEach((c) => {
-          const text = c.innerText || '';
-          if (text.length > 5) {
-            const btn = c.querySelector('a');
-            const img = c.querySelector('img');
-            items.push({
-              text,
-              link: btn ? btn.href : 'https://ticketing.levanteud.com',
-              img: img ? img.src : '',
-            });
-          }
-        });
-        return items;
-      });
+        for (const ev of rawEvents) {
+          const competition = ev.competitions?.[0];
+          const competitors = competition?.competitors || [];
+          const homeTeam = competitors.find((c) => c.homeAway === 'home');
+          const awayTeam = competitors.find((c) => c.homeAway === 'away');
 
-      for (const m of ticketMatches) {
-        const iso = extractDateFromAnyText(m.text);
-        if (!iso) continue;
+          if (homeTeam && homeTeam.team?.id === '94') {
+            const dateStr = ev.date;
+            const dt = new Date(dateStr);
+            if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
+              const rival = awayTeam?.team?.displayName || 'Rival';
+              const ticketLink = ev.links?.find((l) => l.rel?.includes('tickets'))?.href || 'https://ticketing.levanteud.com';
+              const logo = awayTeam?.team?.logos?.[0]?.href;
 
-        const dt = new Date(iso);
-        if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
-
-        let rival = 'LaLiga Match';
-        const lines = m.text.split('\n').map((l) => l.trim()).filter(Boolean);
-        for (const l of lines) {
-          if (!/levante|ciutat|valencia|ticket|comprar|entradas|\d{1,2}:\d{2}/i.test(l) && l.length > 2 && l.length < 35) {
-            rival = l;
-            break;
+              events.push({
+                id: `lud-${events.length + 1}-${Date.now()}`,
+                title: `Levante UD vs ${toNaturalCase(rival)}`,
+                description: `Partido en el Estadi Ciutat de València frente a ${rival}`,
+                category: 'esports',
+                startDate: new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 19, 0, 0)).toISOString(),
+                venueName: 'Estadi Ciutat de València',
+                address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
+                imageUrl: logo || 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Ciutat_de_Valencia_01.jpg/640px-Ciutat_de_Valencia_01.jpg',
+                isFree: false,
+                ticketUrl: ticketLink,
+                url: ticketLink,
+              });
+            }
           }
         }
-
-        events.push({
-          id: `lud-${events.length + 1}-${Date.now()}`,
-          title: `Levante UD vs ${toNaturalCase(rival)}`,
-          description: `Partido en el Estadi Ciutat de València frente a ${rival}`,
-          category: 'esports',
-          startDate: iso,
-          venueName: 'Estadi Ciutat de València',
-          address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
-          imageUrl: m.img || 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Ciutat_de_Valencia_01.jpg/640px-Ciutat_de_Valencia_01.jpg',
-          isFree: false,
-          ticketUrl: m.link,
-          url: m.link,
-        });
       }
-    } catch (tickErr) {
-      console.warn(`Levante UD ticketing skipped: ${tickErr.message}`);
+    } catch (apiErr) {
+      console.warn(`Levante UD API fallback skipped: ${apiErr.message}`);
     }
   }
 
@@ -752,7 +731,6 @@ async function scrapeValenciaBasket(page, context) {
           const rawText = b.innerText || '';
           const normalized = rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-          // Check if Valencia Basket is playing at Home (Fonteta or listed first)
           const isHome =
             /Valencia\s*(Basket|BC)\s*(-|vs|\.|\d)/i.test(normalized) ||
             /Fonteta|Roig Arena|Pavello/i.test(normalized);
@@ -823,7 +801,6 @@ async function scrapeFdmValencia(page, context) {
     await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(2000);
 
-    // Targeted selectors for specific event cards only (NO outer wrappers)
     const cards = await page.$$eval('article.evento, article.post, .type-evento, .card-evento, .entry-card', (nodes) =>
       nodes.map((el) => {
         const titleEl = el.querySelector('h2, h3, .entry-title');
@@ -843,7 +820,6 @@ async function scrapeFdmValencia(page, context) {
     );
 
     for (const card of cards) {
-      // Discard invalid, blank, or generic site headings
       if (!card.title || card.title.length < 5) continue;
       if (/^(event|evento|eventos|agenda|noticias|deportes|valencia|buscar)$/i.test(card.title.trim())) continue;
 
@@ -853,7 +829,6 @@ async function scrapeFdmValencia(page, context) {
       const dt = new Date(iso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
-      // Discard placeholder logos
       const isValidImage = card.img && !card.img.includes('logo-rojo') && !card.img.endsWith('.svg');
 
       events.push({
