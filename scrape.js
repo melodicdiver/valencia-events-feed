@@ -74,18 +74,15 @@ function stripAccents(str) {
   return (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-// Case preservation for Roman numerals, acronyms, and Spanish prepositions
+// Case preservation for Roman numerals, acronyms, and uppercase prefixes
 function toNaturalCase(str) {
   if (!str) return '';
   const trimmed = str.trim();
 
-  // Explicit acronyms
   const ACRONYMS = new Set([
-    'BBVA', 'WTA', 'ATP', 'ACB', 'FDM', 'IVAM', 'CCCC', 'TEM', 'MUVIM', 'CAHH', 'VCF', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'XXI', '3X3'
+    'BBVA', 'WTA', 'ATP', 'ACB', 'FDM', 'IVAM', 'CCCC', 'TEM', 'MUVIM', 'CAHH', 'VCF', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'XXI', '3X3', 'XLVIII', '15K'
   ]);
   const lowerWords = new Set(['de', 'del', "d'", 'd’', 'el', 'la', 'los', 'las', 'en', 'i', 'y', 'al', 'als', 'vs', 'a', 'por', 'con']);
-
-  // Roman numerals: I, II, III, IV, V, VI, VII, VIII, IX, X, XI, XII, XIII, XIV, XV, XVI, XVII, XVIII, XIX, XX, XXI, XLVIII, etc.
   const isRoman = (w) => /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/i.test(w) && w.length >= 1;
 
   return trimmed
@@ -94,7 +91,7 @@ function toNaturalCase(str) {
       if (!w || /^\s+$/.test(w) || /^[-–—,:;./]+$/.test(w)) return w;
       const upper = w.toUpperCase();
 
-      if (ACRONYMS.has(upper)) return upper;
+      if (ACRONYMS.has(upper) || /^\d+K$/i.test(w)) return upper;
       if (isRoman(w) && w.length >= 2) return upper;
 
       const lower = w.toLowerCase();
@@ -346,7 +343,7 @@ async function scrapeSongkick(page, context) {
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     } catch (err) {
-      console.warn(`Songkick navigation timeout on page ${pageNum}: ${err.message}`);
+      console.warn(`Songkick timeout: ${err.message}`);
       break;
     }
 
@@ -518,7 +515,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// 3. Live Scraper for Fundación Deportiva Municipal (FDM València)
+// 3. Live Scraper for Fundación Deportiva Municipal (FDM València) with robust address extraction
 async function scrapeFdmValencia(page, context) {
   console.log('Scraping FDM València events dynamically...');
   const events = [];
@@ -532,69 +529,79 @@ async function scrapeFdmValencia(page, context) {
     });
     await page.waitForTimeout(2500);
 
-    // Synchronous DOM scan of the events list
     const rawItems = await page.evaluate(() => {
       const results = [];
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const allLinks = Array.from(document.querySelectorAll('a[href*="/eventos/"]'));
+      const allElements = Array.from(document.querySelectorAll('body *'));
 
-      for (const a of allLinks) {
-        const href = (a.href || '').trim();
-        const text = (a.innerText || '').trim();
+      for (const el of allElements) {
+        if (el.children && el.children.length > 0) continue;
+        const text = (el.innerText || el.textContent || '').trim();
 
-        if (
-          !href || 
-          href.includes('?') || 
-          href.includes('&') || 
-          href.endsWith('/eventos/') || 
-          href.endsWith('/eventos') ||
-          /aviso|privacidad|cookies|mapa|contacto|instalaciones|deporte|agenda/i.test(href) ||
-          text.length < 5 ||
-          /^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más|siguiente|anterior)$/i.test(text)
-        ) {
-          continue;
-        }
+        const dateMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre)\s+(\d{4})\b/i);
+        if (!dateMatch || text.length > 70) continue;
 
-        const normTitle = text.toLowerCase();
-        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
+        let container = el.parentElement;
+        for (let depth = 0; depth < 5 && container && container !== document.body; depth++) {
+          const links = Array.from(container.querySelectorAll('a'));
+          const validLink = links.find((a) => {
+            const txt = (a.innerText || '').trim();
+            const h = (a.href || '').trim();
+            return (
+              txt.length >= 6 &&
+              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más)$/i.test(txt) &&
+              !h.includes('aviso') &&
+              !h.includes('cookies') &&
+              !h.includes('privacidad')
+            );
+          });
 
-        let container = a.closest('article, .post, .entry, [class*="evento"], [class*="event"], li, tr, .item, div.row') || 
-                        a.parentElement?.parentElement?.parentElement || 
-                        a.parentElement?.parentElement;
+          if (validLink) {
+            const title = validLink.innerText.trim();
+            const href = validLink.href.trim();
+            const normTitle = title.toLowerCase();
 
-        const containerText = container ? (container.innerText || '') : text;
+            if (!seenUrls.has(href) && !seenTitles.has(normTitle)) {
+              seenUrls.add(href);
+              seenTitles.add(normTitle);
 
-        let foundImg = null;
-        if (container) {
-          const imgs = Array.from(container.querySelectorAll('img'));
-          for (const img of imgs) {
-            const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
-            if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
-              foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
-              break;
+              let foundImg = null;
+              let searchRow = container;
+              for (let d = 0; d < 4 && searchRow && searchRow !== document.body; d++) {
+                const imgs = Array.from(searchRow.querySelectorAll('img'));
+                for (const img of imgs) {
+                  const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
+                  if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
+                    foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
+                    break;
+                  }
+                }
+                if (foundImg) break;
+                searchRow = searchRow.parentElement;
+              }
+
+              results.push({
+                title,
+                dateText: text,
+                containerText: container.innerText || '',
+                url: href,
+                img: foundImg,
+              });
             }
+            break;
           }
+          container = container.parentElement;
         }
-
-        seenUrls.add(href);
-        seenTitles.add(normTitle);
-
-        results.push({
-          title: text,
-          rawText: containerText,
-          url: href,
-          listingImg: foundImg,
-        });
       }
 
       return results;
     });
 
-    console.log(`FDM raw events matched: ${rawItems.length}`);
+    console.log(`FDM live elements parsed: ${rawItems.length}`);
 
-    // Parallel extraction of authentic photos and precise addresses from each event detail page
+    // Fetch detail pages in parallel to extract precise addresses and photos
     if (context && rawItems.length > 0) {
       await Promise.allSettled(
         rawItems.map(async (item) => {
@@ -603,28 +610,23 @@ async function scrapeFdmValencia(page, context) {
             if (res.ok()) {
               const html = await res.text();
 
-              // 1. Precise address extraction under the Google Maps block
-              const addressMatch = html.match(/(?:<i[^>]*class=["'][^"']*map-marker[^"']*["'][^>]*><\/i>|Abrir en Maps.*?<\/a>)(?:[\s\S]*?<p[^>]*>)?([\s\S]*?)(?:<\/p>|<div|<\/div>)/i) ||
-                                   html.match(/<div[^>]*class=["'][^"']*(?:direccion|address|lugar|ubicacion)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+              // Robust address matching beneath map block
+              const addrMatch = html.match(/(?:<i[^>]*class=["'][^"']*map-marker[^"']*["'][^>]*><\/i>|Abrir en Maps.*?<\/a>)(?:[\s\S]*?<p[^>]*>)?([\s\S]*?)(?:<\/p>|<div|<\/div>)/i) ||
+                                html.match(/<div[^>]*class=["'][^"']*(?:direccion|address|lugar|ubicacion)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
+                                html.match(/<div[^>]*id=["'][^"']*map[^"']*["'][^>]*>[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/i);
 
-              if (addressMatch && addressMatch[1]) {
-                const cleanAddr = addressMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-                if (cleanAddr.length > 5 && !/google|maps|abrir/i.test(cleanAddr)) {
-                  item.parsedAddress = cleanAddr;
+              if (addrMatch && addrMatch[1]) {
+                const clean = addrMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+                if (clean.length > 4 && !/google|maps|abrir/i.test(clean)) {
+                  item.parsedAddress = clean;
                 }
               }
 
-              // 2. Exact featured poster image extraction
-              if (!item.listingImg) {
+              if (!item.img) {
                 const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
                                 html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
                 if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
-                  item.listingImg = ogMatch[1].replace(/&amp;/g, '&');
-                  return;
-                }
-                const contentImg = html.match(/<img[^>]+class=["'][^"']*wp-image-[^"']*["'][^>]+src=["']([^"']+)["']/i);
-                if (contentImg && contentImg[1] && isValidDetailImg(contentImg[1])) {
-                  item.listingImg = contentImg[1].replace(/&amp;/g, '&');
+                  item.img = ogMatch[1].replace(/&amp;/g, '&');
                 }
               }
             }
@@ -637,19 +639,18 @@ async function scrapeFdmValencia(page, context) {
       let startDateIso = null;
       let endDateIso = undefined;
 
-      const rangeMatch = item.rawText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
+      const rangeMatch = item.containerText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
       if (rangeMatch) {
         startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
         endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
       } else {
-        startDateIso = extractDateFromAnyText(item.rawText);
+        startDateIso = extractDateFromAnyText(item.rawText) || extractDateFromAnyText(item.dateText);
       }
 
       if (!startDateIso) continue;
       const dt = new Date(startDateIso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
-      // Extract specific venue and address
       let venue = 'València';
       let fullAddress = 'València';
 
@@ -668,7 +669,7 @@ async function scrapeFdmValencia(page, context) {
         else if (/Jaula/i.test(item.title)) { venue = 'Ciutat de les Arts i les Ciències'; fullAddress = 'Ciutat de les Arts i les Ciències, Av. del Professor López Piñero, 7'; }
       }
 
-      const finalImg = item.listingImg || getSportsFallback(item.title);
+      const finalImg = item.img || getSportsFallback(item.title);
 
       events.push({
         id: `fdm-${events.length + 1}-${Date.now()}`,
