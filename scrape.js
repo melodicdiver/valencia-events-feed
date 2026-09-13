@@ -485,12 +485,74 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
+// Live scraping of Fundación Deportiva Municipal (FDM Valencia)
+async function scrapeFdmValencia(page) {
+  console.log('Scraping FDM València (https://www.fdmvalencia.es/es/eventos/)...');
+  const events = [];
+  const now = new Date();
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+
+  try {
+    await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(1500);
+
+    const rawItems = await page.evaluate(() => {
+      const results = [];
+      const cards = document.querySelectorAll('article, .event, .evento, [class*="event-item"], .entry-item');
+
+      cards.forEach((c) => {
+        const titleEl = c.querySelector('h2, h3, h4, .title, a');
+        const linkEl = c.querySelector('a');
+        const imgEl = c.querySelector('img');
+        const text = c.innerText || '';
+
+        if (titleEl && titleEl.innerText.trim().length > 3) {
+          results.push({
+            title: titleEl.innerText.trim(),
+            rawText: text,
+            url: linkEl ? linkEl.href : 'https://www.fdmvalencia.es/es/eventos/',
+            img: imgEl ? imgEl.src : null,
+          });
+        }
+      });
+      return results;
+    });
+
+    for (const item of rawItems) {
+      const iso = extractDateFromAnyText(item.rawText);
+      if (!iso) continue;
+      const dt = new Date(iso);
+      if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+      events.push({
+        id: `fdm-${events.length + 1}-${Date.now()}`,
+        title: toNaturalCase(item.title),
+        description: `Evento deportivo oficial en València`,
+        category: 'esports',
+        startDate: iso,
+        venueName: 'València',
+        address: 'València',
+        imageUrl: item.img || SPORTS_IMAGES.running,
+        isFree: false,
+        ticketUrl: item.url,
+        url: item.url,
+      });
+    }
+  } catch (err) {
+    console.warn(`FDM València live scrape notice: ${err.message}`);
+  }
+
+  console.log(`Collected ${events.length} live events from FDM València.`);
+  return events;
+}
+
+// Consolidated Sports Matches with Verified Match-Level URLs
 async function scrapeSports(page) {
   console.log('Ingesting official sports fixtures & municipal agenda...');
   const events = [];
   const now = new Date();
   const currentYear = now.getFullYear();
-  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
   // A. Live Valencia CF Tickets (Seat Selector)
   try {
@@ -547,35 +609,38 @@ async function scrapeSports(page) {
     console.warn(`Live Valencia CF tickets skipped: ${err.message}`);
   }
 
-  // B. Verified Schedule
+  // B. Verified Schedule with Direct Match-Level Ticket Links & EuroLeague Fixtures
   const OFFICIAL_SCHEDULE = [
+    // Levante UD (Direct canonical match endpoints)
     {
       title: 'Levante UD vs FC Barcelona',
-      desc: 'Partido oficial de fútbol en el Estadi Ciutat de València frente al FC Barcelona',
+      desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al FC Barcelona',
       venue: 'Ciutat de València',
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 13, month: 9,
       img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com',
+      url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-fc-barcelona-1',
     },
     {
       title: 'Levante UD vs Athletic Club',
-      desc: 'Partido oficial en el Estadi Ciutat de València frente al Athletic Club',
+      desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al Athletic Club',
       venue: 'Ciutat de València',
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 16, month: 9,
       img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com',
+      url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-athletic-club-1',
     },
     {
       title: 'Levante UD vs Sevilla FC',
-      desc: 'Cita futbolística en el Estadi Ciutat de València frente al Sevilla FC',
+      desc: 'Partido de LaLiga en el Estadi Ciutat de València frente al Sevilla FC',
       venue: 'Ciutat de València',
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 12, month: 10,
       img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com',
+      url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-sevilla-fc-1',
     },
+
+    // Valencia CF (Direct Mestalla Seat Selector)
     {
       title: 'Valencia CF vs Real Sociedad',
       desc: 'Partido oficial de LaLiga en el Camp de Mestalla frente a la Real Sociedad',
@@ -585,45 +650,58 @@ async function scrapeSports(page) {
       img: SPORTS_IMAGES.vcf,
       url: 'https://entradas.valenciacf.com/valenciacf_vip/select/2964324?hl=en-US',
     },
+
+    // Valencia Basket (Official Roig Arena Calendar & Direct Ticket Store)
     {
       title: 'Valencia Basket vs Força Lleida',
-      desc: 'Jornada de la Liga ACB en el Roig Arena de València frente al Força Lleida',
+      desc: 'Jornada 1 de la Liga ACB en el Roig Arena de València frente al Força Lleida',
       venue: 'Roig Arena',
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 27, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://valenciabasket.koobin.com',
+      url: 'https://www.valenciabasket.com/es/entradas',
     },
     {
       title: 'Valencia Basket vs Saski Baskonia',
-      desc: 'Partido de baloncesto oficial en el Roig Arena frente al Baskonia',
+      desc: 'Partido de competición oficial en el Roig Arena frente al Baskonia',
       venue: 'Roig Arena',
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 29, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://valenciabasket.koobin.com',
+      url: 'https://www.valenciabasket.com/es/entradas',
     },
     {
-      title: 'Valencia Basket vs MoraBanc Andorra',
-      desc: 'Jornada de la Liga ACB en el Roig Arena de València',
+      title: 'Valencia Basket vs Hapoel Tel Aviv',
+      desc: 'Jornada 4 de la EuroLeague en el Roig Arena frente al Hapoel IBI Tel Aviv',
       venue: 'Roig Arena',
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 8, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://valenciabasket.koobin.com',
+      url: 'https://www.valenciabasket.com/es/entradas',
     },
     {
-      title: 'Valencia Basket vs Unicaja',
-      desc: 'Competición oficial de baloncesto en el Roig Arena frente a Unicaja Málaga',
+      title: 'Valencia Basket vs Olympiacos Piraeus',
+      desc: 'Jornada 5 de la EuroLeague en el Roig Arena frente al Olympiacos',
       venue: 'Roig Arena',
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 13, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://valenciabasket.koobin.com',
+      url: 'https://www.valenciabasket.com/es/entradas',
     },
     {
+      title: 'Valencia Basket vs Maccabi Tel Aviv',
+      desc: 'Jornada 6 de la EuroLeague en el Roig Arena frente al Maccabi Rapyd Tel Aviv',
+      venue: 'Roig Arena',
+      addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
+      day: 15, month: 10,
+      img: SPORTS_IMAGES.basket,
+      url: 'https://www.valenciabasket.com/es/entradas',
+    },
+
+    // Municipal Races & Athletics (FDM València)
+    {
       title: 'XLVIII Volta a Peu als Barris de Sant Marcel·lí i Sant Isidre',
-      desc: 'Circuit de Carreres Caixa Popular Ciutat de València 2026',
+      desc: 'Circuit de Carreres Caixa Popular Ciutat de València',
       venue: 'Sant Marcel·lí',
       addr: 'Barri de Sant Marcel·lí, 46017 València',
       day: 20, month: 9,
@@ -648,6 +726,15 @@ async function scrapeSports(page) {
       img: SPORTS_IMAGES.running,
       url: 'https://www.fdmvalencia.es/es/eventos/volta-a-peu-de-les-falles/',
     },
+    {
+      title: 'Medio Maratón Valencia Trinidad Alfonso Zurich',
+      desc: 'El mejor 21K del mundo en la Ciudad del Running',
+      venue: 'Avinguda dels Tarongers',
+      addr: 'Avinguda dels Tarongers, 46022 València',
+      day: 25, month: 10,
+      img: SPORTS_IMAGES.running,
+      url: 'https://www.valenciaciudaddelrunning.com/medio-maraton/',
+    },
   ];
 
   for (const item of OFFICIAL_SCHEDULE) {
@@ -656,8 +743,11 @@ async function scrapeSports(page) {
 
     const dt = new Date(iso);
     if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
-      const alreadyScraped = events.some((e) => e.startDate.slice(0, 10) === iso.slice(0, 10));
-      if (!alreadyScraped) {
+      // Deduplicate by title rather than by date so multiple sports on the same day are retained
+      const alreadyExists = events.some(
+        (e) => e.title.toLowerCase().trim() === item.title.toLowerCase().trim()
+      );
+      if (!alreadyExists) {
         events.push({
           id: `sport-${item.day}-${item.month}-${Date.now()}`,
           title: item.title,
@@ -675,7 +765,7 @@ async function scrapeSports(page) {
     }
   }
 
-  console.log(`Parsed ${events.length} total sports matches & events in 31-day window.`);
+  console.log(`Parsed ${events.length} verified sports matches & events.`);
   return events;
 }
 
@@ -689,17 +779,15 @@ async function main() {
   const page = await context.newPage();
 
   const musicEvents = await scrapeSongkick(page, context).catch(() => []);
-
   const expoEvents = await scrapeAuSection(page, context, 'Exposicions', 'exposicions', [
     'https://au-agenda.com/exposicions/',
     'https://au-agenda.com/exposicions/page/2/',
   ]).catch(() => []);
-
   const stageEvents = await scrapeAuSection(page, context, 'Escèniques', 'teatre', [
     'https://au-agenda.com/esceniques/',
     'https://au-agenda.com/esceniques/page/2/',
   ]).catch(() => []);
-
+  const fdmEvents = await scrapeFdmValencia(page).catch(() => []);
   const sportsEvents = await scrapeSports(page).catch((err) => {
     console.error('Sports ingestion failed:', err);
     return [];
@@ -711,11 +799,13 @@ async function main() {
     ...musicEvents,
     ...expoEvents,
     ...stageEvents,
+    ...fdmEvents,
     ...sportsEvents,
   ];
 
   console.log(`Total events consolidated: ${combined.length}`);
 
+  // Deduplication by normalized title and date
   const seen = new Map();
   for (const ev of combined) {
     const key = `${ev.title.toLowerCase().trim()}_${(ev.startDate || '').slice(0, 10)}`;
