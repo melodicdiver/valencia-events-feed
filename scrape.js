@@ -485,73 +485,106 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// Live scraping of Fundación Deportiva Municipal with specific permalinks
+// 4. Live Scraper for Fundación Deportiva Municipal (FDM València)
 async function scrapeFdmValencia(page) {
-  console.log('Scraping FDM València events with specific permalinks...');
+  console.log('Scraping FDM València events (https://www.fdmvalencia.es/es/eventos/)...');
   const events = [];
   const now = new Date();
+  const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
   try {
-    await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(2000);
+    await page.goto('https://www.fdmvalencia.es/es/eventos/', { 
+      waitUntil: 'domcontentloaded', 
+      timeout: 35000 
+    });
+    await page.waitForTimeout(2500);
 
     const rawItems = await page.evaluate(() => {
       const results = [];
-      const candidateAnchors = Array.from(document.querySelectorAll('a[href*="/eventos/"]'));
       const seenUrls = new Set();
+      const seenTitles = new Set();
 
-      candidateAnchors.forEach((a) => {
+      const allAnchors = Array.from(document.querySelectorAll('a'));
+
+      for (const a of allAnchors) {
+        const title = (a.innerText || '').trim();
         const href = (a.href || '').trim();
 
-        // Must be a specific event detail URL: excludes query params, calendar state, and the root list URL
-        if (
-          !href ||
-          href.includes('?') ||
-          href.includes('&') ||
-          href.endsWith('/es/eventos/') ||
-          href.endsWith('/es/eventos') ||
-          seenUrls.has(href)
-        ) {
-          return;
+        if (!href || title.length < 6 || href.startsWith('javascript') || href.includes('#')) {
+          continue;
         }
 
-        const container = a.closest('article, .entry, .post, [class*="event"], li') || a;
-        const titleEl = container.querySelector('h2, h3, h4, .entry-title') || a;
-        const rawTitle = titleEl.innerText.trim();
+        if (/^(inicio|agenda|instalaciones|comunicacion|comunicación|valencia|buscar|contacto|aviso|cookies|politica|política|accesibilidad|event|evento|eventos|mes|ano|año|dia|día|ver|más|siguiente|anterior)$/i.test(title)) {
+          continue;
+        }
 
-        // Reject generic navigation and non-event UI titles
-        if (
-          rawTitle.length >= 6 &&
-          !/^(event|evento|eventos|agenda|mes|ano|año|dia|día|buscar|filtrar|ver|más|siguiente|anterior)$/i.test(rawTitle)
-        ) {
+        const container = a.closest('article, .post, .entry, [class*="event"], [class*="item"], li, tr, div.row') || a.parentElement?.parentElement || a.parentElement;
+        if (!container) continue;
+
+        const containerText = container.innerText || '';
+
+        const hasDate = /\b(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)\b/i.test(containerText);
+
+        if (hasDate) {
+          const normTitle = title.toLowerCase();
+          if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
           seenUrls.add(href);
-          const imgEl = container.querySelector('img');
+          seenTitles.add(normTitle);
+
+          const img = container.querySelector('img');
+          const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
+
           results.push({
-            title: rawTitle,
-            rawText: container.innerText || rawTitle,
+            title: title,
+            rawText: containerText,
             url: href,
-            img: imgEl ? imgEl.src : null,
+            img: imgSrc && !imgSrc.includes('spacer') && !imgSrc.includes('pixel') ? imgSrc : null,
           });
         }
-      });
+      }
+
       return results;
     });
 
+    console.log(`FDM live elements parsed: ${rawItems.length}`);
+
     for (const item of rawItems) {
-      const iso = extractDateFromAnyText(item.rawText);
-      if (!iso) continue;
-      const dt = new Date(iso);
+      let startDateIso = null;
+      let endDateIso = undefined;
+
+      const rangeMatch = item.rawText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)\s+(\d{4})\s*[-–—]\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)\s+(\d{4})\b/i);
+      if (rangeMatch) {
+        startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
+        endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
+      } else {
+        const singleIso = extractDateFromAnyText(item.rawText);
+        if (singleIso) startDateIso = singleIso;
+      }
+
+      if (!startDateIso) continue;
+
+      const dt = new Date(startDateIso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+      let venue = 'València';
+      if (/Sant Marcel/i.test(item.title)) venue = 'Sant Marcel·lí';
+      else if (/Falles/i.test(item.title)) venue = 'Plaça de l’Ajuntament';
+      else if (/Nocturna/i.test(item.title)) venue = 'Passeig de l’Albereda';
+      else if (/Campanar/i.test(item.title)) venue = 'Campanar';
+      else if (/BBVA|Tennis|Tenis/i.test(item.title)) venue = 'Club de Tenis Valencia';
+      else if (/Sailing|Vela/i.test(item.title)) venue = 'Marina de València';
+      else if (/Jaula|Basket/i.test(item.title)) venue = 'Roig Arena';
 
       events.push({
         id: `fdm-${events.length + 1}-${Date.now()}`,
         title: toNaturalCase(item.title),
         description: `Evento deportivo oficial en València`,
         category: 'esports',
-        startDate: iso,
-        venueName: 'València',
-        address: 'València',
+        startDate: startDateIso,
+        endDate: endDateIso,
+        venueName: venue,
+        address: `${venue}, València`,
         imageUrl: item.img || SPORTS_IMAGES.running,
         isFree: false,
         ticketUrl: item.url,
@@ -562,13 +595,13 @@ async function scrapeFdmValencia(page) {
     console.warn(`FDM València live scrape notice: ${err.message}`);
   }
 
-  console.log(`Collected ${events.length} verified live events from FDM València.`);
+  console.log(`Ingested ${events.length} live FDM València events.`);
   return events;
 }
 
-// Consolidated Sports Matches with Verified Match-Level URLs
+// 5. Consolidated Club Fixtures with Match-Level Ticketing Links
 async function scrapeSports(page) {
-  console.log('Ingesting official sports fixtures & municipal agenda...');
+  console.log('Ingesting verified sports fixtures...');
   const events = [];
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -629,9 +662,8 @@ async function scrapeSports(page) {
     console.warn(`Live Valencia CF tickets skipped: ${err.message}`);
   }
 
-  // B. Verified Schedule with Direct Match-Level Ticket Links & EuroLeague Fixtures
+  // B. Verified Match Fixtures with Direct Match Endpoints
   const OFFICIAL_SCHEDULE = [
-    // Levante UD (Direct canonical match endpoints)
     {
       title: 'Levante UD vs FC Barcelona',
       desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al FC Barcelona',
@@ -659,8 +691,6 @@ async function scrapeSports(page) {
       img: SPORTS_IMAGES.lud,
       url: 'https://ticketing.levanteud.com/es/liga-ea-sports/valencia/levante-ud-vs-sevilla-fc-1',
     },
-
-    // Valencia CF (Direct Mestalla Seat Selector)
     {
       title: 'Valencia CF vs Real Sociedad',
       desc: 'Partido oficial de LaLiga en el Camp de Mestalla frente a la Real Sociedad',
@@ -670,8 +700,6 @@ async function scrapeSports(page) {
       img: SPORTS_IMAGES.vcf,
       url: 'https://entradas.valenciacf.com/valenciacf_vip/select/2964324?hl=en-US',
     },
-
-    // Valencia Basket (Official Roig Arena Calendar & Direct Ticket Store)
     {
       title: 'Valencia Basket vs Força Lleida',
       desc: 'Jornada 1 de la Liga ACB en el Roig Arena de València frente al Força Lleida',
@@ -717,44 +745,6 @@ async function scrapeSports(page) {
       img: SPORTS_IMAGES.basket,
       url: 'https://www.valenciabasket.com/es/entradas',
     },
-
-    // Municipal Races & Athletics (Direct Event Permalinks)
-    {
-      title: 'XLVIII Volta a Peu als Barris de Sant Marcel·lí i Sant Isidre',
-      desc: 'Circuit de Carreres Caixa Popular Ciutat de València',
-      venue: 'Sant Marcel·lí',
-      addr: 'Barri de Sant Marcel·lí, 46017 València',
-      day: 20, month: 9,
-      img: SPORTS_IMAGES.running,
-      url: 'https://www.fdmvalencia.es/es/eventos/48-volta-a-peu-als-barris-de-sant-marcelli-i-sant-isidre/',
-    },
-    {
-      title: '15K Nocturna Valencia FibraValencia',
-      desc: 'Gran carrera nocturna homologada por las principales avenidas de València',
-      venue: 'Passeig de l’Albereda',
-      addr: 'Passeig de l’Albereda, 46023 València',
-      day: 26, month: 9,
-      img: SPORTS_IMAGES.running,
-      url: 'https://sportmaniacs.com/es/races/15k-nocturna-valencia-banco-medialnum-2026',
-    },
-    {
-      title: 'XVI Volta a Peu de les Falles',
-      desc: 'Prueba oficial del Circuit de Carreres Ciutat de València con salida en el centro histórico',
-      venue: 'Plaça de l’Ajuntament',
-      addr: 'Plaça de l’Ajuntament, 46002 València',
-      day: 4, month: 10,
-      img: SPORTS_IMAGES.running,
-      url: 'https://www.fdmvalencia.es/es/eventos/volta-a-peu-de-les-falles/',
-    },
-    {
-      title: 'Medio Maratón Valencia Trinidad Alfonso Zurich',
-      desc: 'El mejor 21K del mundo en la Ciudad del Running',
-      venue: 'Avinguda dels Tarongers',
-      addr: 'Avinguda dels Tarongers, 46022 València',
-      day: 25, month: 10,
-      img: SPORTS_IMAGES.running,
-      url: 'https://www.valenciaciudaddelrunning.com/medio-maraton/',
-    },
   ];
 
   for (const item of OFFICIAL_SCHEDULE) {
@@ -784,7 +774,6 @@ async function scrapeSports(page) {
     }
   }
 
-  console.log(`Parsed ${events.length} verified sports matches & events.`);
   return events;
 }
 
@@ -815,16 +804,15 @@ async function main() {
   await browser.close();
 
   const combined = [
+    ...sportsEvents,
+    ...fdmEvents,
     ...musicEvents,
     ...expoEvents,
     ...stageEvents,
-    ...fdmEvents,
-    ...sportsEvents,
   ];
 
   console.log(`Total events consolidated: ${combined.length}`);
 
-  // Deduplicate and filter out single-word generic artifact titles
   const seen = new Map();
   for (const ev of combined) {
     const cleanTitle = (ev.title || '').trim();
