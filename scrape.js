@@ -485,11 +485,12 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// 4. Strict Content Scraper for Fundación Deportiva Municipal (FDM València)
+// 4. Robust Live Scraper for Fundación Deportiva Municipal (FDM València)
 async function scrapeFdmValencia(page) {
-  console.log('Scraping FDM València events (strict content filtering)...');
+  console.log('Scraping FDM València events...');
   const events = [];
   const now = new Date();
+  const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
   try {
@@ -504,28 +505,31 @@ async function scrapeFdmValencia(page) {
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const contentArea = document.querySelector('main, #main, .content, .wrap, .site-content') || document.body;
-      const candidateAnchors = Array.from(contentArea.querySelectorAll('a[href*="/eventos/"]'));
+      const cards = Array.from(document.querySelectorAll('article, .post, .entry, [class*="evento"], [class*="event"], li'));
 
-      for (const a of candidateAnchors) {
-        const title = (a.innerText || '').trim();
-        const href = (a.href || '').trim();
+      for (const card of cards) {
+        const titleEl = card.querySelector('h2, h3, h4, .entry-title, a');
+        const linkEl = card.querySelector('a[href*="/eventos/"]');
+        
+        if (!titleEl || !linkEl) continue;
 
-        if (!href || title.length < 5 || href.includes('?') || href.includes('&') || href.endsWith('/es/eventos/') || href.endsWith('/es/eventos')) {
-          continue;
-        }
+        const title = titleEl.innerText.trim();
+        const href = linkEl.href.trim();
 
         if (
-          /aviso-legal|privacidad|cookies|mapa-web|contacto|quienes-somos|colaboradores|legal|politica|valencia-en-deporte|instalaciones/i.test(href) ||
+          !href || 
+          title.length < 5 || 
+          href.includes('?') || 
+          href.includes('&') || 
+          href.endsWith('/es/eventos/') || 
+          href.endsWith('/es/eventos') ||
+          /aviso-legal|privacidad|cookies|mapa-web|contacto|quienes-somos|colaboradores|legal|politica/i.test(href) ||
           /^(aviso legal|política|cookies|mapa web|contacto|inicio|agenda|instalaciones|comunicación|valencia|buscar)$/i.test(title)
         ) {
           continue;
         }
 
-        const container = a.closest('article, .post, .entry, [class*="event"], [class*="item"], li, div') || a.parentElement;
-        if (!container) continue;
-
-        const containerText = container.innerText || '';
+        const containerText = card.innerText || '';
         const hasDate = /\b(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)\b/i.test(containerText);
 
         if (hasDate) {
@@ -534,7 +538,7 @@ async function scrapeFdmValencia(page) {
           seenUrls.add(href);
           seenTitles.add(normTitle);
 
-          const img = container.querySelector('img');
+          const img = card.querySelector('img');
           const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
 
           results.push({
