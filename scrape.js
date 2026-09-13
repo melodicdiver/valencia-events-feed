@@ -2,7 +2,6 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-// Curated dictionary for Valencia venues
 const KNOWN_VENUES = [
   { pattern: /\bcahh\b|hortensia herrero/i, name: 'CAHH', address: 'Carrer del Mar, 31, 46003 València' },
   { pattern: /mubav|belles arts|bellas artes/i, name: 'Museu de Belles Arts de València (MuBAV)', address: 'Carrer de Sant Pius V, 9, 46010 València' },
@@ -283,7 +282,6 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
   };
 }
 
-// 1. Music (Songkick - 31-Day Rolling Window)
 async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música - 31-Day Rolling Window)...');
 
@@ -417,7 +415,6 @@ async function scrapeSongkick(page, context) {
   return events;
 }
 
-// 2. Cultural Agenda (Expos & Stage)
 async function scrapeAuSection(page, context, label, category, urls) {
   console.log(`Scraping AU-Agenda (${label})...`);
   const rawCards = [];
@@ -488,7 +485,6 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// 3. Consolidated Sports Matches with Verified Live Ticketing Portals
 async function scrapeSports(page) {
   console.log('Ingesting official sports fixtures & municipal agenda...');
   const events = [];
@@ -551,12 +547,11 @@ async function scrapeSports(page) {
     console.warn(`Live Valencia CF tickets skipped: ${err.message}`);
   }
 
-  // B. Verified Schedule (All opponents exist 100% in your repository logos)
+  // B. Verified Schedule
   const OFFICIAL_SCHEDULE = [
-    // Levante UD (Active official ticketing portal)
     {
       title: 'Levante UD vs FC Barcelona',
-      desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al FC Barcelona',
+      desc: 'Partido oficial de fútbol en el Estadi Ciutat de València frente al FC Barcelona',
       venue: 'Ciutat de València',
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 13, month: 9,
@@ -565,7 +560,7 @@ async function scrapeSports(page) {
     },
     {
       title: 'Levante UD vs Athletic Club',
-      desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al Athletic Club',
+      desc: 'Partido oficial en el Estadi Ciutat de València frente al Athletic Club',
       venue: 'Ciutat de València',
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 16, month: 9,
@@ -574,15 +569,13 @@ async function scrapeSports(page) {
     },
     {
       title: 'Levante UD vs Sevilla FC',
-      desc: 'Partido de LaLiga en el Estadi Ciutat de València frente al Sevilla FC',
+      desc: 'Cita futbolística en el Estadi Ciutat de València frente al Sevilla FC',
       venue: 'Ciutat de València',
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 12, month: 10,
       img: SPORTS_IMAGES.lud,
       url: 'https://ticketing.levanteud.com',
     },
-
-    // Valencia CF (Direct Mestalla Seat Selector)
     {
       title: 'Valencia CF vs Real Sociedad',
       desc: 'Partido oficial de LaLiga en el Camp de Mestalla frente a la Real Sociedad',
@@ -592,8 +585,6 @@ async function scrapeSports(page) {
       img: SPORTS_IMAGES.vcf,
       url: 'https://entradas.valenciacf.com/valenciacf_vip/select/2964324?hl=en-US',
     },
-
-    // Valencia Basket (Active official ticketing portal)
     {
       title: 'Valencia Basket vs Força Lleida',
       desc: 'Jornada de la Liga ACB en el Roig Arena de València frente al Força Lleida',
@@ -601,16 +592,16 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 27, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://valenciabasket.koobin.com',
     },
     {
       title: 'Valencia Basket vs Saski Baskonia',
-      desc: 'Partido de competición oficial en el Roig Arena frente al Baskonia',
+      desc: 'Partido de baloncesto oficial en el Roig Arena frente al Baskonia',
       venue: 'Roig Arena',
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 29, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://valenciabasket.koobin.com',
     },
     {
       title: 'Valencia Basket vs MoraBanc Andorra',
@@ -619,7 +610,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 8, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://valenciabasket.koobin.com',
     },
     {
       title: 'Valencia Basket vs Unicaja',
@@ -628,10 +619,8 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 13, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com/es/entradas',
+      url: 'https://valenciabasket.koobin.com',
     },
-
-    // Municipal Races & Athletics (FDM València)
     {
       title: 'XLVIII Volta a Peu als Barris de Sant Marcel·lí i Sant Isidre',
       desc: 'Circuit de Carreres Caixa Popular Ciutat de València 2026',
