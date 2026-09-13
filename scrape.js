@@ -485,12 +485,11 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// 4. Live Scraper for Fundación Deportiva Municipal (FDM València)
+// 4. Strict Content Scraper for Fundación Deportiva Municipal (FDM València)
 async function scrapeFdmValencia(page) {
-  console.log('Scraping FDM València events (https://www.fdmvalencia.es/es/eventos/)...');
+  console.log('Scraping FDM València events (strict content filtering)...');
   const events = [];
   const now = new Date();
-  const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
   try {
@@ -505,25 +504,28 @@ async function scrapeFdmValencia(page) {
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const allAnchors = Array.from(document.querySelectorAll('a'));
+      const contentArea = document.querySelector('main, #main, .content, .wrap, .site-content') || document.body;
+      const candidateAnchors = Array.from(contentArea.querySelectorAll('a[href*="/eventos/"]'));
 
-      for (const a of allAnchors) {
+      for (const a of candidateAnchors) {
         const title = (a.innerText || '').trim();
         const href = (a.href || '').trim();
 
-        if (!href || title.length < 6 || href.startsWith('javascript') || href.includes('#')) {
+        if (!href || title.length < 5 || href.includes('?') || href.includes('&') || href.endsWith('/es/eventos/') || href.endsWith('/es/eventos')) {
           continue;
         }
 
-        if (/^(inicio|agenda|instalaciones|comunicacion|comunicación|valencia|buscar|contacto|aviso|cookies|politica|política|accesibilidad|event|evento|eventos|mes|ano|año|dia|día|ver|más|siguiente|anterior)$/i.test(title)) {
+        if (
+          /aviso-legal|privacidad|cookies|mapa-web|contacto|quienes-somos|colaboradores|legal|politica|valencia-en-deporte|instalaciones/i.test(href) ||
+          /^(aviso legal|política|cookies|mapa web|contacto|inicio|agenda|instalaciones|comunicación|valencia|buscar)$/i.test(title)
+        ) {
           continue;
         }
 
-        const container = a.closest('article, .post, .entry, [class*="event"], [class*="item"], li, tr, div.row') || a.parentElement?.parentElement || a.parentElement;
+        const container = a.closest('article, .post, .entry, [class*="event"], [class*="item"], li, div') || a.parentElement;
         if (!container) continue;
 
         const containerText = container.innerText || '';
-
         const hasDate = /\b(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)\b/i.test(containerText);
 
         if (hasDate) {
@@ -539,7 +541,7 @@ async function scrapeFdmValencia(page) {
             title: title,
             rawText: containerText,
             url: href,
-            img: imgSrc && !imgSrc.includes('spacer') && !imgSrc.includes('pixel') ? imgSrc : null,
+            img: imgSrc && !imgSrc.includes('spacer') && !imgSrc.includes('pixel') && !imgSrc.includes('logo') ? imgSrc : null,
           });
         }
       }
@@ -547,20 +549,12 @@ async function scrapeFdmValencia(page) {
       return results;
     });
 
-    console.log(`FDM live elements parsed: ${rawItems.length}`);
-
     for (const item of rawItems) {
       let startDateIso = null;
       let endDateIso = undefined;
 
-      const rangeMatch = item.rawText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)\s+(\d{4})\s*[-–—]\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)\s+(\d{4})\b/i);
-      if (rangeMatch) {
-        startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
-        endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
-      } else {
-        const singleIso = extractDateFromAnyText(item.rawText);
-        if (singleIso) startDateIso = singleIso;
-      }
+      const singleIso = extractDateFromAnyText(item.rawText);
+      if (singleIso) startDateIso = singleIso;
 
       if (!startDateIso) continue;
 
@@ -571,10 +565,8 @@ async function scrapeFdmValencia(page) {
       if (/Sant Marcel/i.test(item.title)) venue = 'Sant Marcel·lí';
       else if (/Falles/i.test(item.title)) venue = 'Plaça de l’Ajuntament';
       else if (/Nocturna/i.test(item.title)) venue = 'Passeig de l’Albereda';
-      else if (/Campanar/i.test(item.title)) venue = 'Campanar';
       else if (/BBVA|Tennis|Tenis/i.test(item.title)) venue = 'Club de Tenis Valencia';
       else if (/Sailing|Vela/i.test(item.title)) venue = 'Marina de València';
-      else if (/Jaula|Basket/i.test(item.title)) venue = 'Roig Arena';
 
       events.push({
         id: `fdm-${events.length + 1}-${Date.now()}`,
@@ -647,7 +639,7 @@ async function scrapeSports(page) {
       events.push({
         id: `vcf-${events.length + 1}-${Date.now()}`,
         title: `Valencia CF vs ${toNaturalCase(opponent)}`,
-        description: `Partido oficial en el Camp de Mestalla frente a ${opponent}`,
+        description: `Partido oficial en el Camp de Mestalla frente al ${opponent}`,
         category: 'esports',
         startDate: iso,
         venueName: 'Estadio de Mestalla',
