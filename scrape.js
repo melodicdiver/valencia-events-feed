@@ -293,6 +293,23 @@ function getSportsFallback(title) {
   return SPORTS_FALLBACKS.running;
 }
 
+function isValidDetailImg(url) {
+  if (!url || typeof url !== 'string') return false;
+  const lower = url.toLowerCase();
+  if (
+    lower.includes('logo') ||
+    lower.includes('icon') ||
+    lower.includes('pixel') ||
+    lower.includes('spacer') ||
+    lower.includes('avatar') ||
+    lower.includes('theme') ||
+    lower.endsWith('.svg')
+  ) {
+    return false;
+  }
+  return true;
+}
+
 // 1. Music (Songkick)
 async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música)...');
@@ -314,7 +331,7 @@ async function scrapeSongkick(page, context) {
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     } catch (err) {
-      console.warn(`Songkick navigation timeout: ${err.message}`);
+      console.warn(`Songkick navigation timeout on page ${pageNum}: ${err.message}`);
       break;
     }
 
@@ -487,7 +504,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
 }
 
 // 3. Live Scraper for Fundación Deportiva Municipal (FDM València)
-async function scrapeFdmValencia(page) {
+async function scrapeFdmValencia(page, context) {
   console.log('Scraping FDM València events dynamically...');
   const events = [];
   const now = new Date();
@@ -498,108 +515,105 @@ async function scrapeFdmValencia(page) {
       waitUntil: 'domcontentloaded', 
       timeout: 35000 
     });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2500);
 
-    const rawItems = await page.evaluate(async () => {
+    // Fast, synchronous evaluation: collect event permalinks and listing markup without blocking
+    const rawItems = await page.evaluate(() => {
       const results = [];
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const allElements = Array.from(document.querySelectorAll('body *'));
+      const allLinks = Array.from(document.querySelectorAll('a[href*="/eventos/"]'));
 
-      for (const el of allElements) {
-        if (el.children && el.children.length > 0) continue;
-        const text = (el.innerText || el.textContent || '').trim();
+      for (const a of allLinks) {
+        const href = (a.href || '').trim();
+        const text = (a.innerText || '').trim();
 
-        const dateMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre)\s+(\d{4})\b/i);
-        if (!dateMatch || text.length > 70) continue;
+        if (
+          !href || 
+          href.includes('?') || 
+          href.includes('&') || 
+          href.endsWith('/eventos/') || 
+          href.endsWith('/eventos') ||
+          /aviso|privacidad|cookies|mapa|contacto|instalaciones|deporte|agenda/i.test(href) ||
+          text.length < 5 ||
+          /^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más|siguiente|anterior)$/i.test(text)
+        ) {
+          continue;
+        }
 
-        let container = el.parentElement;
-        for (let depth = 0; depth < 6 && container && container !== document.body; depth++) {
-          const links = Array.from(container.querySelectorAll('a'));
-          const validLink = links.find((a) => {
-            const txt = (a.innerText || '').trim();
-            const h = (a.href || '').trim();
-            return (
-              txt.length >= 6 &&
-              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más)$/i.test(txt) &&
-              !h.includes('aviso') &&
-              !h.includes('cookies') &&
-              !h.includes('privacidad')
-            );
-          });
+        const normTitle = text.toLowerCase();
+        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
 
-          if (validLink) {
-            const title = validLink.innerText.trim();
-            const href = validLink.href.trim();
-            const normTitle = title.toLowerCase();
+        let container = a.closest('article, .post, .entry, [class*="evento"], [class*="event"], li, tr, .item, div.row') || 
+                        a.parentElement?.parentElement?.parentElement || 
+                        a.parentElement?.parentElement;
 
-            if (!seenUrls.has(href) && !seenTitles.has(normTitle)) {
-              seenUrls.add(href);
-              seenTitles.add(normTitle);
+        const containerText = container ? (container.innerText || '') : text;
 
-              let foundImg = null;
-              let imgContainer = container;
-              for (let i = 0; i < 4 && imgContainer && imgContainer !== document.body; i++) {
-                const img = imgContainer.querySelector('img');
-                if (img) {
-                  const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
-                  if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon')) {
-                    foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
-                    break;
-                  }
-                }
-                imgContainer = imgContainer.parentElement;
-              }
-
-              results.push({
-                title,
-                dateText: text,
-                url: href,
-                listingImg: foundImg,
-              });
+        let foundImg = null;
+        if (container) {
+          const imgs = Array.from(container.querySelectorAll('img'));
+          for (const img of imgs) {
+            const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
+            if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
+              foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
+              break;
             }
-            break;
           }
-          container = container.parentElement;
         }
-      }
 
-      // Extract authentic images from each detail page via same-origin fetch
-      for (const item of results) {
-        if (!item.listingImg && item.url) {
-          try {
-            const r = await fetch(item.url, { method: 'GET' });
-            if (r.ok) {
-              const html = await r.text();
-              const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-                              html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-              if (ogMatch && ogMatch[1] && !ogMatch[1].includes('logo') && !ogMatch[1].includes('icon')) {
-                item.listingImg = ogMatch[1].replace(/&amp;/g, '&');
-              } else {
-                const imgTag = html.match(/<img[^>]+class=["'][^"']*wp-image-[^"']*["'][^>]+src=["']([^"']+)["']/i);
-                if (imgTag && imgTag[1]) {
-                  item.listingImg = imgTag[1].replace(/&amp;/g, '&');
-                }
-              }
-            }
-          } catch (_) {}
-        }
+        seenUrls.add(href);
+        seenTitles.add(normTitle);
+
+        results.push({
+          title: text,
+          rawText: containerText,
+          url: href,
+          listingImg: foundImg,
+        });
       }
 
       return results;
     });
 
+    console.log(`FDM raw events matched: ${rawItems.length}`);
+
+    // In parallel, fetch the authentic image for each event using Playwright's network client in Node.js
+    if (context && rawItems.length > 0) {
+      await Promise.allSettled(
+        rawItems.map(async (item) => {
+          if (item.listingImg) return;
+          try {
+            const res = await context.request.get(item.url, { timeout: 5000 });
+            if (res.ok()) {
+              const html = await res.text();
+              const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                              html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+              if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
+                item.listingImg = ogMatch[1].replace(/&amp;/g, '&');
+                return;
+              }
+              const wpImg = html.match(/<img[^>]+class=["'][^"']*wp-image-[^"']*["'][^>]+src=["']([^"']+)["']/i);
+              if (wpImg && wpImg[1] && isValidDetailImg(wpImg[1])) {
+                item.listingImg = wpImg[1].replace(/&amp;/g, '&');
+              }
+            }
+          } catch (_) {}
+        })
+      );
+    }
+
     for (const item of rawItems) {
       let startDateIso = null;
       let endDateIso = undefined;
 
-      const range = item.dateText.match(/(\d{1,2})\s+([a-z]{3,})\s+(\d{4})\s*[-–—]\s*(\d{1,2})\s+([a-z]{3,})\s+(\d{4})/i);
-      if (range) {
-        startDateIso = parseSpanishDateToIso(range[1], range[2], range[3]);
-        endDateIso = parseSpanishDateToIso(range[4], range[5], range[6]) || undefined;
+      const rangeMatch = item.rawText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
+      if (rangeMatch) {
+        startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
+        endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
       } else {
-        startDateIso = extractDateFromAnyText(item.dateText);
+        startDateIso = extractDateFromAnyText(item.rawText);
       }
 
       if (!startDateIso) continue;
@@ -613,6 +627,10 @@ async function scrapeFdmValencia(page) {
       else if (/BBVA|Tennis|Tenis/i.test(item.title)) venue = 'Club de Tenis Valencia';
       else if (/Sailing|Vela/i.test(item.title)) venue = 'Marina de València';
       else if (/Campanar/i.test(item.title)) venue = 'Campanar';
+      else if (/Taekwondo/i.test(item.title)) venue = 'Pavelló Font de Sant Lluís';
+      else if (/Jaula/i.test(item.title)) venue = 'Ciutat de les Arts i les Ciències';
+      else if (/Dogfy/i.test(item.title)) venue = 'Parc de Capçalera';
+      else if (/Correcaminos/i.test(item.title)) venue = 'València';
 
       const finalImg = item.listingImg || getSportsFallback(item.title);
 
@@ -913,7 +931,7 @@ async function main() {
   let fdmEvents = [];
   try {
     const page = await context.newPage();
-    fdmEvents = await scrapeFdmValencia(page);
+    fdmEvents = await scrapeFdmValencia(page, context);
     await page.close();
   } catch (e) {
     console.error('FDM error:', e.message);
