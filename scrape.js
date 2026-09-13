@@ -515,88 +515,102 @@ async function scrapeFdmValencia(page, context) {
       waitUntil: 'domcontentloaded', 
       timeout: 35000 
     });
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3000);
 
-    // Fast, synchronous evaluation: collect event permalinks and listing markup without blocking
+    // Fast, synchronous evaluation: extracts titles, dates, links, and listing thumbnails without timeouts
     const rawItems = await page.evaluate(() => {
       const results = [];
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const allLinks = Array.from(document.querySelectorAll('a[href*="/eventos/"]'));
+      const allElements = Array.from(document.querySelectorAll('body *'));
 
-      for (const a of allLinks) {
-        const href = (a.href || '').trim();
-        const text = (a.innerText || '').trim();
+      for (const el of allElements) {
+        if (el.children && el.children.length > 0) continue;
+        const text = (el.innerText || el.textContent || '').trim();
 
-        if (
-          !href || 
-          href.includes('?') || 
-          href.includes('&') || 
-          href.endsWith('/eventos/') || 
-          href.endsWith('/eventos') ||
-          /aviso|privacidad|cookies|mapa|contacto|instalaciones|deporte|agenda/i.test(href) ||
-          text.length < 5 ||
-          /^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más|siguiente|anterior)$/i.test(text)
-        ) {
-          continue;
-        }
+        // Matches strings like "20 Sep 2026 | 9:00 - 12:00" or "13 Sep 2026 - 20 Sep 2026"
+        const dateMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre)\s+(\d{4})\b/i);
+        if (!dateMatch || text.length > 70) continue;
 
-        const normTitle = text.toLowerCase();
-        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
+        let container = el.parentElement;
+        for (let depth = 0; depth < 5 && container && container !== document.body; depth++) {
+          const links = Array.from(container.querySelectorAll('a'));
+          const validLink = links.find((a) => {
+            const txt = (a.innerText || '').trim();
+            const h = (a.href || '').trim();
+            return (
+              txt.length >= 6 &&
+              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más)$/i.test(txt) &&
+              !h.includes('aviso') &&
+              !h.includes('cookies') &&
+              !h.includes('privacidad')
+            );
+          });
 
-        let container = a.closest('article, .post, .entry, [class*="evento"], [class*="event"], li, tr, .item, div.row') || 
-                        a.parentElement?.parentElement?.parentElement || 
-                        a.parentElement?.parentElement;
+          if (validLink) {
+            const title = validLink.innerText.trim();
+            const href = validLink.href.trim();
+            const normTitle = title.toLowerCase();
 
-        const containerText = container ? (container.innerText || '') : text;
+            if (!seenUrls.has(href) && !seenTitles.has(normTitle)) {
+              seenUrls.add(href);
+              seenTitles.add(normTitle);
 
-        let foundImg = null;
-        if (container) {
-          const imgs = Array.from(container.querySelectorAll('img'));
-          for (const img of imgs) {
-            const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
-            if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
-              foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
-              break;
+              // Climb up to the parent row to find the event's thumbnail
+              let foundImg = null;
+              let searchRow = container;
+              for (let d = 0; d < 4 && searchRow && searchRow !== document.body; d++) {
+                const imgs = Array.from(searchRow.querySelectorAll('img'));
+                for (const img of imgs) {
+                  const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
+                  if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
+                    // Strip WordPress dimension suffix (e.g. -150x108.jpg) to retrieve the original high-resolution photo
+                    foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
+                    break;
+                  }
+                }
+                if (foundImg) break;
+                searchRow = searchRow.parentElement;
+              }
+
+              results.push({
+                title,
+                dateText: text,
+                containerText: container.innerText || '',
+                url: href,
+                img: foundImg,
+              });
             }
+            break;
           }
+          container = container.parentElement;
         }
-
-        seenUrls.add(href);
-        seenTitles.add(normTitle);
-
-        results.push({
-          title: text,
-          rawText: containerText,
-          url: href,
-          listingImg: foundImg,
-        });
       }
 
       return results;
     });
 
-    console.log(`FDM raw events matched: ${rawItems.length}`);
+    console.log(`FDM live elements parsed: ${rawItems.length}`);
 
-    // In parallel, fetch the authentic image for each event using Playwright's network client in Node.js
+    // If an image wasn't found on the listing, fetch the detail page in Node.js via Promise.allSettled
     if (context && rawItems.length > 0) {
       await Promise.allSettled(
         rawItems.map(async (item) => {
-          if (item.listingImg) return;
+          if (item.img) return;
           try {
-            const res = await context.request.get(item.url, { timeout: 5000 });
+            const res = await context.request.get(item.url, { timeout: 6000 });
             if (res.ok()) {
               const html = await res.text();
               const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
                               html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
               if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
-                item.listingImg = ogMatch[1].replace(/&amp;/g, '&');
+                item.img = ogMatch[1].replace(/&amp;/g, '&');
                 return;
               }
               const wpImg = html.match(/<img[^>]+class=["'][^"']*wp-image-[^"']*["'][^>]+src=["']([^"']+)["']/i);
               if (wpImg && wpImg[1] && isValidDetailImg(wpImg[1])) {
-                item.listingImg = wpImg[1].replace(/&amp;/g, '&');
+                item.img = wpImg[1].replace(/&amp;/g, '&');
               }
             }
           } catch (_) {}
@@ -608,12 +622,12 @@ async function scrapeFdmValencia(page, context) {
       let startDateIso = null;
       let endDateIso = undefined;
 
-      const rangeMatch = item.rawText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
+      const rangeMatch = item.containerText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
       if (rangeMatch) {
         startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
         endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
       } else {
-        startDateIso = extractDateFromAnyText(item.rawText);
+        startDateIso = extractDateFromAnyText(item.dateText) || extractDateFromAnyText(item.containerText);
       }
 
       if (!startDateIso) continue;
@@ -632,7 +646,7 @@ async function scrapeFdmValencia(page, context) {
       else if (/Dogfy/i.test(item.title)) venue = 'Parc de Capçalera';
       else if (/Correcaminos/i.test(item.title)) venue = 'València';
 
-      const finalImg = item.listingImg || getSportsFallback(item.title);
+      const finalImg = item.img || getSportsFallback(item.title);
 
       events.push({
         id: `fdm-${events.length + 1}-${Date.now()}`,
@@ -894,7 +908,6 @@ async function main() {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   });
 
-  // Dedicated page per scraper task to prevent cascading memory crashes
   let musicEvents = [];
   try {
     const page = await context.newPage();
@@ -978,7 +991,6 @@ async function main() {
 
   console.log(`Total events consolidated: ${combined.length}`);
 
-  // Deduplicate and filter out single-word generic artifact titles
   const seen = new Map();
   for (const ev of combined) {
     const cleanTitle = (ev.title || '').trim();
