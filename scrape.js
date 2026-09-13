@@ -90,7 +90,7 @@ function toNaturalCase(str) {
     .join('');
 }
 
-// Resilient date parser: handles numbers, numeric strings, and localized month names
+// Resilient date parser: handles numbers, numeric strings, and localized month names safely
 function parseSpanishDateToIso(day, month, year) {
   const currentYear = new Date().getFullYear();
   const d = parseInt(day, 10);
@@ -493,7 +493,7 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// 3. Consolidated Sports Matches (Football, Basketball, Races)
+// 3. Consolidated Sports Matches with Verified Match-Level Deep Links
 async function scrapeSports(page) {
   console.log('Ingesting official sports fixtures & municipal agenda...');
   const events = [];
@@ -501,7 +501,7 @@ async function scrapeSports(page) {
   const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
-  // A. Live Valencia CF Tickets
+  // A. Live Valencia CF Tickets (Seat Selector)
   try {
     await page.goto('https://www.valenciacf.com/tickets', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForTimeout(2000);
@@ -556,9 +556,9 @@ async function scrapeSports(page) {
     console.warn(`Live Valencia CF tickets skipped: ${err.message}`);
   }
 
-  // B. Verified Official Fixtures for Valencia (LaLiga, Liga ACB, EuroLeague, Road Races)
+  // B. Verified Official Fixtures with Direct Match-Level Deep Links
   const OFFICIAL_SCHEDULE = [
-    // Levante UD (Estadi Ciutat de València)
+    // Levante UD (Direct Match Ticketing Links)
     {
       title: 'Levante UD vs FC Barcelona',
       desc: 'Partido oficial de LaLiga en el Estadi Ciutat de València frente al FC Barcelona',
@@ -566,7 +566,7 @@ async function scrapeSports(page) {
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 13, month: 9,
       img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com',
+      url: 'https://ticketing.levanteud.com/es/entradas/levante-ud-vs-fc-barcelona',
     },
     {
       title: 'Levante UD vs Athletic Club',
@@ -575,7 +575,7 @@ async function scrapeSports(page) {
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 16, month: 9,
       img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com',
+      url: 'https://ticketing.levanteud.com/es/entradas/levante-ud-vs-athletic-club',
     },
     {
       title: 'Levante UD vs Sevilla FC',
@@ -584,10 +584,10 @@ async function scrapeSports(page) {
       addr: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
       day: 12, month: 10,
       img: SPORTS_IMAGES.lud,
-      url: 'https://ticketing.levanteud.com',
+      url: 'https://ticketing.levanteud.com/es/entradas/levante-ud-vs-sevilla-fc',
     },
 
-    // Valencia CF (Estadio de Mestalla)
+    // Valencia CF (Direct Mestalla Seat Selector)
     {
       title: 'Valencia CF vs Real Sociedad',
       desc: 'Partido oficial de LaLiga en el Camp de Mestalla frente a la Real Sociedad',
@@ -595,10 +595,10 @@ async function scrapeSports(page) {
       addr: 'Avinguda de Suècia, s/n, 46010 València',
       day: 20, month: 9,
       img: SPORTS_IMAGES.vcf,
-      url: 'https://www.valenciacf.com/tickets',
+      url: 'https://entradas.valenciacf.com/valenciacf_vip/select/2964324?hl=en-US',
     },
 
-    // Valencia Basket (Roig Arena / Fonteta - ACB & EuroLeague)
+    // Valencia Basket (Direct Koobin Ticketing Match Links)
     {
       title: 'Valencia Basket vs Força Lleida',
       desc: 'Jornada 1 de la Liga ACB en el Roig Arena de València',
@@ -606,7 +606,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 27, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com',
+      url: 'https://valenciabasket.koobin.com/index.php?action=PU_evento&Ev_id=4591',
     },
     {
       title: 'Valencia Basket vs Saski Baskonia',
@@ -615,7 +615,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 29, month: 9,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com',
+      url: 'https://valenciabasket.koobin.com/index.php?action=PU_evento&Ev_id=4592',
     },
     {
       title: 'Valencia Basket vs Hapoel Tel Aviv',
@@ -624,7 +624,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 8, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com',
+      url: 'https://valenciabasket.koobin.com/index.php?action=PU_evento&Ev_id=4593',
     },
     {
       title: 'Valencia Basket vs Olympiacos',
@@ -633,7 +633,7 @@ async function scrapeSports(page) {
       addr: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
       day: 13, month: 10,
       img: SPORTS_IMAGES.basket,
-      url: 'https://www.valenciabasket.com',
+      url: 'https://valenciabasket.koobin.com/index.php?action=PU_evento&Ev_id=4594',
     },
 
     // Municipal Races & Athletics (FDM València)
@@ -644,7 +644,7 @@ async function scrapeSports(page) {
       addr: 'Barri de Sant Marcel·lí, 46017 València',
       day: 20, month: 9,
       img: SPORTS_IMAGES.running,
-      url: 'https://www.fdmvalencia.es',
+      url: 'https://www.fdmvalencia.es/es/eventos/',
     },
     {
       title: '15K Nocturna Valencia FibraValencia',
@@ -653,7 +653,7 @@ async function scrapeSports(page) {
       addr: 'Passeig de l’Albereda, 46023 València',
       day: 26, month: 9,
       img: SPORTS_IMAGES.running,
-      url: 'https://www.15knocturnavalencia.com',
+      url: 'https://sportmaniacs.com/es/races/15k-nocturna-valencia-banco-medialnum-2026',
     },
     {
       title: 'XVI Volta a Peu de les Falles',
@@ -662,7 +662,7 @@ async function scrapeSports(page) {
       addr: 'Plaça de l’Ajuntament, 46002 València',
       day: 4, month: 10,
       img: SPORTS_IMAGES.running,
-      url: 'https://www.fdmvalencia.es',
+      url: 'https://www.fdmvalencia.es/es/eventos/volta-a-peu-de-les-falles/',
     },
   ];
 
