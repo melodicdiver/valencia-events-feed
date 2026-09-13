@@ -1,3 +1,4 @@
+```javascript
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
@@ -41,7 +42,7 @@ const KNOWN_VENUES = [
   { pattern: /palau de les arts|les arts/i, name: 'Palau de les Arts Reina Sofía', address: 'Av. del Professor López Piñero, 1, 46013 València' },
   { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
   { pattern: /jardins del palau/i, name: 'Jardins del Palau', address: 'Passeig de l’Albereda, 30, 46023 València' },
-  // Stadiums
+  // Stadiums & Arenas
   { pattern: /mestalla/i, name: 'Estadio de Mestalla', address: 'Avinguda de Suècia, s/n, 46010 València' },
   { pattern: /ciutat de val[èe]ncia/i, name: 'Estadi Ciutat de València', address: 'Carrer de Sant Vicent de Paül, 44, 46019 València' },
   { pattern: /fonteta|font de sant llu[ií]s/i, name: 'Pavelló Font de Sant Lluís', address: 'Avinguda dels Germans Maristes, 16, 46013 València' },
@@ -64,6 +65,10 @@ const MONTH_MAP = {
 };
 
 const SPANISH_MONTH_NAMES = Object.keys(MONTH_MAP).join('|');
+
+function stripAccents(str) {
+  return (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 
 function toNaturalCase(str) {
   if (!str) return '';
@@ -109,7 +114,6 @@ function parseSpanishDateToIso(dayStr, monthStr, yearStr) {
 function extractDateFromAnyText(text) {
   if (!text) return null;
 
-  // 1. Strict month names regex (e.g. "18 de octubre 2026", "22 set")
   const namedRegex = new RegExp(`\\b(\\d{1,2})\\s+(?:de\\s+)?(${SPANISH_MONTH_NAMES})\\b(?:\\s+(?:de\\s+)?(\\d{4}))?`, 'i');
   const namedMatch = text.match(namedRegex);
   if (namedMatch) {
@@ -117,7 +121,6 @@ function extractDateFromAnyText(text) {
     if (iso) return iso;
   }
 
-  // 2. Numeric format regex (e.g. "18/10/2026" or "18-10-2026")
   const numMatch = text.match(/\b(\d{1,2})[\/\.-](\d{1,2})(?:[\/\.-](\d{2,4}))?\b/);
   if (numMatch) {
     const iso = parseSpanishDateToIso(numMatch[1], numMatch[2], numMatch[3]);
@@ -166,7 +169,6 @@ function parseAuDateLine(dateText) {
   if (!dateText) return null;
   const currentYear = new Date().getFullYear();
   const clean = dateText.replace(/\s+/g, ' ').toLowerCase();
-
   const toIso = (day, month, yearStr) => parseSpanishDateToIso(day, month, yearStr);
 
   const rangeBothMonths = clean.match(
@@ -290,8 +292,6 @@ async function scrapeSongkick(page, context) {
         ? 'https://www.songkick.com/metro-areas/28802-spain-valencia'
         : `https://www.songkick.com/metro-areas/28802-spain-valencia?page=${pageNum}`;
 
-    console.log(`Fetching Songkick page ${pageNum}: ${targetUrl}`);
-
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     } catch (err) {
@@ -400,7 +400,6 @@ async function scrapeSongkick(page, context) {
       } catch (_) {}
     }
 
-    console.log(`Page ${pageNum}: Ingested ${foundEventsOnPage} valid concerts.`);
     if (maxDateOnPage > cutoffDate.getTime()) break;
   }
 
@@ -481,19 +480,19 @@ async function scrapeAuSection(page, context, label, category, urls) {
 
 // 3. Sports: Valencia CF (Mestalla Home Matches)
 async function scrapeValenciaCF(page, context) {
-  console.log('Scraping Valencia CF (Mestalla Tickets)...');
+  console.log('Scraping Valencia CF...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
-  // Strategy A: Scrape valenciacf.com/tickets with full hydration
+  // Strategy A: Direct Ticketing page
   try {
-    await page.goto('https://www.valenciacf.com/tickets', { waitUntil: 'networkidle', timeout: 35000 });
+    await page.goto('https://www.valenciacf.com/tickets', { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(2000);
 
     const matches = await page.evaluate(() => {
       const items = [];
-      const blocks = document.querySelectorAll('article, [class*="card"], [class*="match"], li, tr');
+      const blocks = document.querySelectorAll('article, [class*="card"], [class*="match"], li');
 
       blocks.forEach((b) => {
         const text = b.innerText || '';
@@ -517,7 +516,7 @@ async function scrapeValenciaCF(page, context) {
       const dt = new Date(iso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
-      let opponent = 'LaLiga';
+      let opponent = 'LaLiga Match';
       const lines = m.rawText.split('\n').map((l) => l.trim()).filter(Boolean);
       for (const l of lines) {
         if (!/valencia|mestalla|ticket|entradas|laliga|vip|jornada|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(l) && l.length > 2 && l.length < 35) {
@@ -525,6 +524,9 @@ async function scrapeValenciaCF(page, context) {
           break;
         }
       }
+
+      // Check if image is a generic SVG icon; if so, provide fallback stadium photo
+      const isValidPhoto = m.img && !m.img.endsWith('.svg') && !m.img.includes('ico-laliga');
 
       events.push({
         id: `vcf-${events.length + 1}-${Date.now()}`,
@@ -534,46 +536,48 @@ async function scrapeValenciaCF(page, context) {
         startDate: iso,
         venueName: 'Estadio de Mestalla',
         address: 'Avinguda de Suècia, s/n, 46010 València',
-        imageUrl: m.img || 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Estadio_de_Mestalla.jpg/640px-Estadio_de_Mestalla.jpg',
+        imageUrl: isValidPhoto ? m.img : 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Estadio_de_Mestalla.jpg/640px-Estadio_de_Mestalla.jpg',
         isFree: false,
         ticketUrl: m.link,
         url: m.link,
       });
     }
   } catch (err) {
-    console.warn(`Valencia CF page scrape skipped: ${err.message}`);
+    console.warn(`Valencia CF page tickets skipped: ${err.message}`);
   }
 
-  // Strategy B: Fallback to official open fixtures API if tickets page had 0 active sales
-  if (events.length === 0) {
-    try {
-      console.log('Ingesting official Valencia CF schedule feed...');
-      const res = await context.request.get('https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/teams/98/schedule', { timeout: 15000 });
-      if (res.ok()) {
-        const json = await res.json();
-        const rawEvents = json.events || [];
+  // Strategy B: Full Schedule Endpoint (Enrich with any other home matches in Mestalla)
+  try {
+    const res = await context.request.get('https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/teams/98/schedule', { timeout: 15000 });
+    if (res.ok()) {
+      const json = await res.json();
+      const rawEvents = json.events || [];
 
-        for (const ev of rawEvents) {
-          const competition = ev.competitions?.[0];
-          const competitors = competition?.competitors || [];
-          const homeTeam = competitors.find((c) => c.homeAway === 'home');
-          const awayTeam = competitors.find((c) => c.homeAway === 'away');
+      for (const ev of rawEvents) {
+        const competition = ev.competitions?.[0];
+        const competitors = competition?.competitors || [];
+        const homeTeam = competitors.find((c) => c.homeAway === 'home');
+        const awayTeam = competitors.find((c) => c.homeAway === 'away');
 
-          // Strict filter: Mestalla HOME matches only
-          if (homeTeam && homeTeam.team?.id === '98') {
-            const dateStr = ev.date; // ISO e.g. 2026-09-20T19:00Z
-            const dt = new Date(dateStr);
-            if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
-              const rival = awayTeam?.team?.displayName || 'Rival';
-              const ticketLink = ev.links?.find((l) => l.rel?.includes('tickets'))?.href || 'https://www.valenciacf.com/tickets';
-              const logo = awayTeam?.team?.logos?.[0]?.href;
+        // Mestalla HOME matches only
+        if (homeTeam && homeTeam.team?.id === '98') {
+          const dateStr = ev.date;
+          const dt = new Date(dateStr);
+          if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
+            const rival = awayTeam?.team?.displayName || 'Rival';
+            const iso = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 19, 0, 0)).toISOString();
+            const ticketLink = ev.links?.find((l) => l.rel?.includes('tickets'))?.href || 'https://www.valenciacf.com/tickets';
+            const logo = awayTeam?.team?.logos?.[0]?.href;
 
+            // Avoid duplicating if Strategy A already found it
+            const alreadyExists = events.some((e) => e.startDate.slice(0, 10) === iso.slice(0, 10));
+            if (!alreadyExists) {
               events.push({
                 id: `vcf-${events.length + 1}-${Date.now()}`,
                 title: `Valencia CF vs ${toNaturalCase(rival)}`,
                 description: `Partido de LaLiga en el Camp de Mestalla contra ${rival}`,
                 category: 'esports',
-                startDate: new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 19, 0, 0)).toISOString(),
+                startDate: iso,
                 venueName: 'Estadio de Mestalla',
                 address: 'Avinguda de Suècia, s/n, 46010 València',
                 imageUrl: logo || 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/df/Estadio_de_Mestalla.jpg/640px-Estadio_de_Mestalla.jpg',
@@ -585,9 +589,9 @@ async function scrapeValenciaCF(page, context) {
           }
         }
       }
-    } catch (apiErr) {
-      console.warn(`Valencia CF API fallback skipped: ${apiErr.message}`);
     }
+  } catch (apiErr) {
+    console.warn(`Valencia CF schedule feed skipped: ${apiErr.message}`);
   }
 
   console.log(`Parsed ${events.length} Valencia CF home matches.`);
@@ -596,25 +600,26 @@ async function scrapeValenciaCF(page, context) {
 
 // 4. Sports: Levante UD (Ciutat de València Home Matches)
 async function scrapeLevanteUD(page, context) {
-  console.log('Scraping Levante UD (Ciutat de València)...');
+  console.log('Scraping Levante UD...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
-  // Strategy A: Direct Ticketing page
+  // Strategy A: Official Matches Calendar
   try {
-    await page.goto('https://ticketing.levanteud.com', { waitUntil: 'networkidle', timeout: 35000 });
+    await page.goto('https://www.levanteud.com/es/calendario', { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(2000);
 
     const matches = await page.evaluate(() => {
       const items = [];
-      const cards = document.querySelectorAll('article, .event-card, .match-card, [class*="card"], li');
+      const cards = document.querySelectorAll('article, .match, .card, [class*="partido"], tr');
 
       cards.forEach((c) => {
         const text = c.innerText || '';
-        const btn = c.querySelector('a');
-        const img = c.querySelector('img');
-        if (text.length > 5) {
+        const isHome = /Ciutat de Val[èe]ncia/i.test(text) || /^Levante/i.test(text.trim());
+        if (isHome && text.length > 5) {
+          const btn = c.querySelector('a');
+          const img = c.querySelector('img');
           items.push({
             text,
             link: btn ? btn.href : 'https://ticketing.levanteud.com',
@@ -635,7 +640,7 @@ async function scrapeLevanteUD(page, context) {
       let rival = 'LaLiga Match';
       const lines = m.text.split('\n').map((l) => l.trim()).filter(Boolean);
       for (const l of lines) {
-        if (!/levante|ciutat|valencia|ticket|comprar|entradas|abono|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(l) && l.length > 2 && l.length < 35) {
+        if (!/levante|ciutat|valencia|ticket|comprar|entradas|abono|jornada|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(l) && l.length > 2 && l.length < 35) {
           rival = l;
           break;
         }
@@ -656,52 +661,65 @@ async function scrapeLevanteUD(page, context) {
       });
     }
   } catch (err) {
-    console.warn(`Levante UD page scrape skipped: ${err.message}`);
+    console.warn(`Levante UD calendar skipped: ${err.message}`);
   }
 
-  // Strategy B: Fallback schedule feed (ESPN team 94)
+  // Strategy B: Ticketing Portal
   if (events.length === 0) {
     try {
-      console.log('Ingesting official Levante UD schedule feed...');
-      const res = await context.request.get('https://site.api.espn.com/apis/site/v2/sports/soccer/esp.2/teams/94/schedule', { timeout: 15000 });
-      if (res.ok()) {
-        const json = await res.json();
-        const rawEvents = json.events || [];
+      await page.goto('https://ticketing.levanteud.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
+      await page.waitForTimeout(2000);
 
-        for (const ev of rawEvents) {
-          const competition = ev.competitions?.[0];
-          const competitors = competition?.competitors || [];
-          const homeTeam = competitors.find((c) => c.homeAway === 'home');
-          const awayTeam = competitors.find((c) => c.homeAway === 'away');
+      const ticketMatches = await page.evaluate(() => {
+        const items = [];
+        const cards = document.querySelectorAll('article, .event-card, .match-card, [class*="card"]');
+        cards.forEach((c) => {
+          const text = c.innerText || '';
+          if (text.length > 5) {
+            const btn = c.querySelector('a');
+            const img = c.querySelector('img');
+            items.push({
+              text,
+              link: btn ? btn.href : 'https://ticketing.levanteud.com',
+              img: img ? img.src : '',
+            });
+          }
+        });
+        return items;
+      });
 
-          // Strict filter: Ciutat de València HOME matches only
-          if (homeTeam && homeTeam.team?.id === '94') {
-            const dateStr = ev.date;
-            const dt = new Date(dateStr);
-            if (dt >= new Date(now.getTime() - 24 * 60 * 60 * 1000) && dt <= cutoffDate) {
-              const rival = awayTeam?.team?.displayName || 'Rival';
-              const ticketLink = ev.links?.find((l) => l.rel?.includes('tickets'))?.href || 'https://ticketing.levanteud.com';
-              const logo = awayTeam?.team?.logos?.[0]?.href;
+      for (const m of ticketMatches) {
+        const iso = extractDateFromAnyText(m.text);
+        if (!iso) continue;
 
-              events.push({
-                id: `lud-${events.length + 1}-${Date.now()}`,
-                title: `Levante UD vs ${toNaturalCase(rival)}`,
-                description: `Partido en el Estadi Ciutat de València frente a ${rival}`,
-                category: 'esports',
-                startDate: new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 19, 0, 0)).toISOString(),
-                venueName: 'Estadi Ciutat de València',
-                address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
-                imageUrl: logo || 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Ciutat_de_Valencia_01.jpg/640px-Ciutat_de_Valencia_01.jpg',
-                isFree: false,
-                ticketUrl: ticketLink,
-                url: ticketLink,
-              });
-            }
+        const dt = new Date(iso);
+        if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+        let rival = 'LaLiga Match';
+        const lines = m.text.split('\n').map((l) => l.trim()).filter(Boolean);
+        for (const l of lines) {
+          if (!/levante|ciutat|valencia|ticket|comprar|entradas|\d{1,2}:\d{2}/i.test(l) && l.length > 2 && l.length < 35) {
+            rival = l;
+            break;
           }
         }
+
+        events.push({
+          id: `lud-${events.length + 1}-${Date.now()}`,
+          title: `Levante UD vs ${toNaturalCase(rival)}`,
+          description: `Partido en el Estadi Ciutat de València frente a ${rival}`,
+          category: 'esports',
+          startDate: iso,
+          venueName: 'Estadi Ciutat de València',
+          address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
+          imageUrl: m.img || 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Ciutat_de_Valencia_01.jpg/640px-Ciutat_de_Valencia_01.jpg',
+          isFree: false,
+          ticketUrl: m.link,
+          url: m.link,
+        });
       }
-    } catch (apiErr) {
-      console.warn(`Levante UD API fallback skipped: ${apiErr.message}`);
+    } catch (tickErr) {
+      console.warn(`Levante UD ticketing skipped: ${tickErr.message}`);
     }
   }
 
@@ -711,19 +729,19 @@ async function scrapeLevanteUD(page, context) {
 
 // 5. Sports: Valencia Basket (Fonteta / Roig Arena Home Matches)
 async function scrapeValenciaBasket(page, context) {
-  console.log('Scraping Valencia Basket (va/calendari)...');
+  console.log('Scraping Valencia Basket...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
   const urls = [
-    'https://www.valenciabasket.com/va/calendari',
     'https://www.valenciabasket.com/es/calendario',
+    'https://www.valenciabasket.com/va/calendari',
   ];
 
   for (const url of urls) {
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 35000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
       await page.waitForTimeout(2000);
 
       const matchEntries = await page.evaluate(() => {
@@ -731,15 +749,20 @@ async function scrapeValenciaBasket(page, context) {
         const blocks = document.querySelectorAll('li, tr, article, [class*="partit"], [class*="match"], .evento');
 
         blocks.forEach((b) => {
-          const text = b.innerText || '';
-          // Check home indicator: Valencia Basket is listed first or Fonteta is mentioned
-          const isHome = /Valencia\s*(Basket|BC)\s*(-|vs|\.|\d)/i.test(text) || /Fonteta|Roig Arena/i.test(text);
+          const rawText = b.innerText || '';
+          const normalized = rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+          // Check if Valencia Basket is playing at Home (Fonteta or listed first)
+          const isHome =
+            /Valencia\s*(Basket|BC)\s*(-|vs|\.|\d)/i.test(normalized) ||
+            /Fonteta|Roig Arena|Pavello/i.test(normalized);
+
           if (isHome) {
             const link = b.querySelector('a');
             const img = b.querySelector('img');
             items.push({
-              text,
-              link: link ? link.href : 'https://www.valenciabasket.com/va/calendari',
+              text: rawText,
+              link: link ? link.href : 'https://www.valenciabasket.com',
               img: img ? img.src : '',
             });
           }
@@ -757,7 +780,8 @@ async function scrapeValenciaBasket(page, context) {
         const lines = m.text.split('\n').map((l) => l.trim()).filter(Boolean);
         let rival = 'Basket Match';
         for (const l of lines) {
-          if (!/valencia|basket|fonteta|roig|entradas|ticket|masculino|femenino|jornada|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(l) && l.length > 2 && l.length < 35) {
+          const normL = stripAccents(l);
+          if (!/valencia|basket|fonteta|roig|entradas|ticket|masculino|femenino|jornada|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(normL) && l.length > 2 && l.length < 35) {
             rival = l;
             break;
           }
@@ -780,7 +804,7 @@ async function scrapeValenciaBasket(page, context) {
 
       if (events.length > 0) break;
     } catch (err) {
-      console.warn(`Valencia Basket page scrape failed on ${url}: ${err.message}`);
+      console.warn(`Valencia Basket scrape failed on ${url}: ${err.message}`);
     }
   }
 
@@ -788,42 +812,49 @@ async function scrapeValenciaBasket(page, context) {
   return events;
 }
 
-// 6. Sports: FDM València (Curses, Marató, Running & Agenda)
+// 6. Sports: FDM València (Races, Athletics, Municipal Events)
 async function scrapeFdmValencia(page, context) {
-  console.log('Scraping FDM València (esports/eventos)...');
+  console.log('Scraping FDM València (Curses & Esports)...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
   try {
-    await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 35000 });
+    await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 25000 });
     await page.waitForTimeout(2000);
 
-    const cards = await page.$$eval('article, .evento, .type-evento, .post, [class*="event"]', (nodes) =>
+    // Targeted selectors for specific event cards only (NO outer wrappers)
+    const cards = await page.$$eval('article.evento, article.post, .type-evento, .card-evento, .entry-card', (nodes) =>
       nodes.map((el) => {
         const titleEl = el.querySelector('h2, h3, .entry-title');
         const linkEl = el.querySelector('a');
         const imgEl = el.querySelector('img');
         const descEl = el.querySelector('p, .entry-summary');
+        const dateEl = el.querySelector('.fecha, .date, time, .entry-meta');
 
         return {
           title: titleEl ? titleEl.textContent.trim() : '',
           link: linkEl ? linkEl.href : 'https://www.fdmvalencia.es/es/eventos/',
           img: imgEl ? imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.src || '' : '',
           desc: descEl ? descEl.textContent.trim() : '',
-          fullText: el.innerText || '',
+          dateText: dateEl ? dateEl.textContent.trim() : el.innerText || '',
         };
       })
     );
 
     for (const card of cards) {
-      if (!card.title || card.title.length < 3) continue;
+      // Discard invalid, blank, or generic site headings
+      if (!card.title || card.title.length < 5) continue;
+      if (/^(event|evento|eventos|agenda|noticias|deportes|valencia|buscar)$/i.test(card.title.trim())) continue;
 
-      const iso = extractDateFromAnyText(card.fullText);
+      const iso = extractDateFromAnyText(card.dateText);
       if (!iso) continue;
 
       const dt = new Date(iso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+      // Discard placeholder logos
+      const isValidImage = card.img && !card.img.includes('logo-rojo') && !card.img.endsWith('.svg');
 
       events.push({
         id: `fdm-${events.length + 1}-${Date.now()}`,
@@ -833,7 +864,7 @@ async function scrapeFdmValencia(page, context) {
         startDate: iso,
         venueName: 'Ciutat de València',
         address: 'València, España',
-        imageUrl: card.img || undefined,
+        imageUrl: isValidImage ? card.img : undefined,
         isFree: false,
         ticketUrl: card.link,
         url: card.link,
