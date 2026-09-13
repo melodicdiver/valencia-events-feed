@@ -485,41 +485,54 @@ async function scrapeAuSection(page, context, label, category, urls) {
   return events;
 }
 
-// Live scraping of Fundación Deportiva Municipal (FDM Valencia) with strict title validation
+// Live scraping of Fundación Deportiva Municipal with specific permalinks
 async function scrapeFdmValencia(page) {
-  console.log('Scraping FDM València (https://www.fdmvalencia.es/es/eventos/)...');
+  console.log('Scraping FDM València events with specific permalinks...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
 
   try {
-    await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 25000 });
-    await page.waitForTimeout(1500);
+    await page.goto('https://www.fdmvalencia.es/es/eventos/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
 
     const rawItems = await page.evaluate(() => {
       const results = [];
-      const cards = document.querySelectorAll('article, .entry, .post, [class*="evento-card"]');
+      const candidateAnchors = Array.from(document.querySelectorAll('a[href*="/eventos/"]'));
+      const seenUrls = new Set();
 
-      cards.forEach((c) => {
-        const titleEl = c.querySelector('h2.entry-title, h3.entry-title, .entry-title a, h2 a, h3 a');
-        const linkEl = c.querySelector('a');
-        const imgEl = c.querySelector('img');
-        const text = c.innerText || '';
+      candidateAnchors.forEach((a) => {
+        const href = (a.href || '').trim();
 
-        if (titleEl) {
-          const rawTitle = titleEl.innerText.trim();
-          // Filter out generic navigation headers and non-event UI titles
-          if (
-            rawTitle.length >= 6 &&
-            !/^(event|evento|eventos|agenda|mes|ano|año|dia|día|buscar|filtrar)$/i.test(rawTitle)
-          ) {
-            results.push({
-              title: rawTitle,
-              rawText: text,
-              url: linkEl ? linkEl.href : 'https://www.fdmvalencia.es/es/eventos/',
-              img: imgEl ? imgEl.src : null,
-            });
-          }
+        // Must be a specific event detail URL: excludes query params, calendar state, and the root list URL
+        if (
+          !href ||
+          href.includes('?') ||
+          href.includes('&') ||
+          href.endsWith('/es/eventos/') ||
+          href.endsWith('/es/eventos') ||
+          seenUrls.has(href)
+        ) {
+          return;
+        }
+
+        const container = a.closest('article, .entry, .post, [class*="event"], li') || a;
+        const titleEl = container.querySelector('h2, h3, h4, .entry-title') || a;
+        const rawTitle = titleEl.innerText.trim();
+
+        // Reject generic navigation and non-event UI titles
+        if (
+          rawTitle.length >= 6 &&
+          !/^(event|evento|eventos|agenda|mes|ano|año|dia|día|buscar|filtrar|ver|más|siguiente|anterior)$/i.test(rawTitle)
+        ) {
+          seenUrls.add(href);
+          const imgEl = container.querySelector('img');
+          results.push({
+            title: rawTitle,
+            rawText: container.innerText || rawTitle,
+            url: href,
+            img: imgEl ? imgEl.src : null,
+          });
         }
       });
       return results;
@@ -705,7 +718,7 @@ async function scrapeSports(page) {
       url: 'https://www.valenciabasket.com/es/entradas',
     },
 
-    // Municipal Races & Athletics (FDM València)
+    // Municipal Races & Athletics (Direct Event Permalinks)
     {
       title: 'XLVIII Volta a Peu als Barris de Sant Marcel·lí i Sant Isidre',
       desc: 'Circuit de Carreres Caixa Popular Ciutat de València',
@@ -713,7 +726,7 @@ async function scrapeSports(page) {
       addr: 'Barri de Sant Marcel·lí, 46017 València',
       day: 20, month: 9,
       img: SPORTS_IMAGES.running,
-      url: 'https://www.fdmvalencia.es/es/eventos/',
+      url: 'https://www.fdmvalencia.es/es/eventos/48-volta-a-peu-als-barris-de-sant-marcelli-i-sant-isidre/',
     },
     {
       title: '15K Nocturna Valencia FibraValencia',
