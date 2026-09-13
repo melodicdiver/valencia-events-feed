@@ -74,18 +74,33 @@ function stripAccents(str) {
   return (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+// Case preservation for Roman numerals, acronyms, and Spanish prepositions
 function toNaturalCase(str) {
   if (!str) return '';
-  if (/^(IVAM|CCCC|TEM|MUVIM|CAHH|VCF|LUD)$/i.test(str)) return str.toUpperCase();
-  const lowerWords = new Set(['de', 'del', "d'", 'd’', 'el', 'la', 'los', 'las', 'en', 'i', 'y', 'al', 'als', 'vs', 'a']);
+  const trimmed = str.trim();
 
-  return str
-    .toLowerCase()
-    .split(/(\s+|[-–—,:;.]+)/)
+  // Explicit acronyms
+  const ACRONYMS = new Set([
+    'BBVA', 'WTA', 'ATP', 'ACB', 'FDM', 'IVAM', 'CCCC', 'TEM', 'MUVIM', 'CAHH', 'VCF', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'XXI', '3X3'
+  ]);
+  const lowerWords = new Set(['de', 'del', "d'", 'd’', 'el', 'la', 'los', 'las', 'en', 'i', 'y', 'al', 'als', 'vs', 'a', 'por', 'con']);
+
+  // Roman numerals: I, II, III, IV, V, VI, VII, VIII, IX, X, XI, XII, XIII, XIV, XV, XVI, XVII, XVIII, XIX, XX, XXI, XLVIII, etc.
+  const isRoman = (w) => /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/i.test(w) && w.length >= 1;
+
+  return trimmed
+    .split(/(\s+|[-–—,:;./]+)/)
     .map((w, idx) => {
-      if (!w || /^\s+$/.test(w) || /^[-–—,:;.]+$/.test(w)) return w;
-      if (idx > 0 && lowerWords.has(w)) return w;
-      return w.charAt(0).toUpperCase() + w.slice(1);
+      if (!w || /^\s+$/.test(w) || /^[-–—,:;./]+$/.test(w)) return w;
+      const upper = w.toUpperCase();
+
+      if (ACRONYMS.has(upper)) return upper;
+      if (isRoman(w) && w.length >= 2) return upper;
+
+      const lower = w.toLowerCase();
+      if (idx > 0 && lowerWords.has(lower)) return lower;
+
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
     })
     .join('');
 }
@@ -515,102 +530,102 @@ async function scrapeFdmValencia(page, context) {
       waitUntil: 'domcontentloaded', 
       timeout: 35000 
     });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2500);
 
-    // Fast, synchronous evaluation: extracts titles, dates, links, and listing thumbnails without timeouts
+    // Synchronous DOM scan of the events list
     const rawItems = await page.evaluate(() => {
       const results = [];
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const allElements = Array.from(document.querySelectorAll('body *'));
+      const allLinks = Array.from(document.querySelectorAll('a[href*="/eventos/"]'));
 
-      for (const el of allElements) {
-        if (el.children && el.children.length > 0) continue;
-        const text = (el.innerText || el.textContent || '').trim();
+      for (const a of allLinks) {
+        const href = (a.href || '').trim();
+        const text = (a.innerText || '').trim();
 
-        // Matches strings like "20 Sep 2026 | 9:00 - 12:00" or "13 Sep 2026 - 20 Sep 2026"
-        const dateMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre)\s+(\d{4})\b/i);
-        if (!dateMatch || text.length > 70) continue;
-
-        let container = el.parentElement;
-        for (let depth = 0; depth < 5 && container && container !== document.body; depth++) {
-          const links = Array.from(container.querySelectorAll('a'));
-          const validLink = links.find((a) => {
-            const txt = (a.innerText || '').trim();
-            const h = (a.href || '').trim();
-            return (
-              txt.length >= 6 &&
-              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más)$/i.test(txt) &&
-              !h.includes('aviso') &&
-              !h.includes('cookies') &&
-              !h.includes('privacidad')
-            );
-          });
-
-          if (validLink) {
-            const title = validLink.innerText.trim();
-            const href = validLink.href.trim();
-            const normTitle = title.toLowerCase();
-
-            if (!seenUrls.has(href) && !seenTitles.has(normTitle)) {
-              seenUrls.add(href);
-              seenTitles.add(normTitle);
-
-              // Climb up to the parent row to find the event's thumbnail
-              let foundImg = null;
-              let searchRow = container;
-              for (let d = 0; d < 4 && searchRow && searchRow !== document.body; d++) {
-                const imgs = Array.from(searchRow.querySelectorAll('img'));
-                for (const img of imgs) {
-                  const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
-                  if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
-                    // Strip WordPress dimension suffix (e.g. -150x108.jpg) to retrieve the original high-resolution photo
-                    foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
-                    break;
-                  }
-                }
-                if (foundImg) break;
-                searchRow = searchRow.parentElement;
-              }
-
-              results.push({
-                title,
-                dateText: text,
-                containerText: container.innerText || '',
-                url: href,
-                img: foundImg,
-              });
-            }
-            break;
-          }
-          container = container.parentElement;
+        if (
+          !href || 
+          href.includes('?') || 
+          href.includes('&') || 
+          href.endsWith('/eventos/') || 
+          href.endsWith('/eventos') ||
+          /aviso|privacidad|cookies|mapa|contacto|instalaciones|deporte|agenda/i.test(href) ||
+          text.length < 5 ||
+          /^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más|siguiente|anterior)$/i.test(text)
+        ) {
+          continue;
         }
+
+        const normTitle = text.toLowerCase();
+        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
+
+        let container = a.closest('article, .post, .entry, [class*="evento"], [class*="event"], li, tr, .item, div.row') || 
+                        a.parentElement?.parentElement?.parentElement || 
+                        a.parentElement?.parentElement;
+
+        const containerText = container ? (container.innerText || '') : text;
+
+        let foundImg = null;
+        if (container) {
+          const imgs = Array.from(container.querySelectorAll('img'));
+          for (const img of imgs) {
+            const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
+            if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
+              foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
+              break;
+            }
+          }
+        }
+
+        seenUrls.add(href);
+        seenTitles.add(normTitle);
+
+        results.push({
+          title: text,
+          rawText: containerText,
+          url: href,
+          listingImg: foundImg,
+        });
       }
 
       return results;
     });
 
-    console.log(`FDM live elements parsed: ${rawItems.length}`);
+    console.log(`FDM raw events matched: ${rawItems.length}`);
 
-    // If an image wasn't found on the listing, fetch the detail page in Node.js via Promise.allSettled
+    // Parallel extraction of authentic photos and precise addresses from each event detail page
     if (context && rawItems.length > 0) {
       await Promise.allSettled(
         rawItems.map(async (item) => {
-          if (item.img) return;
           try {
             const res = await context.request.get(item.url, { timeout: 6000 });
             if (res.ok()) {
               const html = await res.text();
-              const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-                              html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-              if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
-                item.img = ogMatch[1].replace(/&amp;/g, '&');
-                return;
+
+              // 1. Precise address extraction under the Google Maps block
+              const addressMatch = html.match(/(?:<i[^>]*class=["'][^"']*map-marker[^"']*["'][^>]*><\/i>|Abrir en Maps.*?<\/a>)(?:[\s\S]*?<p[^>]*>)?([\s\S]*?)(?:<\/p>|<div|<\/div>)/i) ||
+                                   html.match(/<div[^>]*class=["'][^"']*(?:direccion|address|lugar|ubicacion)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+
+              if (addressMatch && addressMatch[1]) {
+                const cleanAddr = addressMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+                if (cleanAddr.length > 5 && !/google|maps|abrir/i.test(cleanAddr)) {
+                  item.parsedAddress = cleanAddr;
+                }
               }
-              const wpImg = html.match(/<img[^>]+class=["'][^"']*wp-image-[^"']*["'][^>]+src=["']([^"']+)["']/i);
-              if (wpImg && wpImg[1] && isValidDetailImg(wpImg[1])) {
-                item.img = wpImg[1].replace(/&amp;/g, '&');
+
+              // 2. Exact featured poster image extraction
+              if (!item.listingImg) {
+                const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                                html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+                if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
+                  item.listingImg = ogMatch[1].replace(/&amp;/g, '&');
+                  return;
+                }
+                const contentImg = html.match(/<img[^>]+class=["'][^"']*wp-image-[^"']*["'][^>]+src=["']([^"']+)["']/i);
+                if (contentImg && contentImg[1] && isValidDetailImg(contentImg[1])) {
+                  item.listingImg = contentImg[1].replace(/&amp;/g, '&');
+                }
               }
             }
           } catch (_) {}
@@ -622,31 +637,38 @@ async function scrapeFdmValencia(page, context) {
       let startDateIso = null;
       let endDateIso = undefined;
 
-      const rangeMatch = item.containerText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
+      const rangeMatch = item.rawText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
       if (rangeMatch) {
         startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
         endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
       } else {
-        startDateIso = extractDateFromAnyText(item.dateText) || extractDateFromAnyText(item.containerText);
+        startDateIso = extractDateFromAnyText(item.rawText);
       }
 
       if (!startDateIso) continue;
       const dt = new Date(startDateIso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
+      // Extract specific venue and address
       let venue = 'València';
-      if (/Sant Marcel/i.test(item.title)) venue = 'Sant Marcel·lí';
-      else if (/Falles/i.test(item.title)) venue = 'Plaça de l’Ajuntament';
-      else if (/Nocturna/i.test(item.title)) venue = 'Passeig de l’Albereda';
-      else if (/BBVA|Tennis|Tenis/i.test(item.title)) venue = 'Club de Tenis Valencia';
-      else if (/Sailing|Vela/i.test(item.title)) venue = 'Marina de València';
-      else if (/Campanar/i.test(item.title)) venue = 'Campanar';
-      else if (/Taekwondo/i.test(item.title)) venue = 'Pavelló Font de Sant Lluís';
-      else if (/Jaula/i.test(item.title)) venue = 'Ciutat de les Arts i les Ciències';
-      else if (/Dogfy/i.test(item.title)) venue = 'Parc de Capçalera';
-      else if (/Correcaminos/i.test(item.title)) venue = 'València';
+      let fullAddress = 'València';
 
-      const finalImg = item.img || getSportsFallback(item.title);
+      if (item.parsedAddress) {
+        fullAddress = item.parsedAddress;
+        const dotSplit = fullAddress.split(/[.\n–—]/);
+        venue = dotSplit[0].trim();
+      } else {
+        if (/Sant Marcel/i.test(item.title)) { venue = 'Sant Marcel·lí'; fullAddress = 'Avenida de Tres Cruces, junto al Cementerio de Valencia'; }
+        else if (/Falles/i.test(item.title)) { venue = 'Plaça de l’Ajuntament'; fullAddress = 'Plaça de l’Ajuntament, València'; }
+        else if (/Nocturna/i.test(item.title)) { venue = 'Passeig de l’Albereda'; fullAddress = 'Passeig de l’Albereda, València'; }
+        else if (/BBVA|Tennis|Tenis/i.test(item.title)) { venue = 'Sporting Club de Tenis'; fullAddress = 'Sporting Club València. Av. de les Balears, 29'; }
+        else if (/Sailing|Vela/i.test(item.title)) { venue = 'Marina de València'; fullAddress = 'Marina de València, Carrer de la Marina Real Juan Carlos I'; }
+        else if (/Taekwondo/i.test(item.title)) { venue = 'Pavelló Font de Sant Lluís'; fullAddress = 'Pavelló Font de Sant Lluís, Av. dels Germans Maristes, 16'; }
+        else if (/Dogfy/i.test(item.title)) { venue = 'Parc de Capçalera'; fullAddress = 'Parc de Capçalera, inmediaciones del Puente Nueve de Octubre'; }
+        else if (/Jaula/i.test(item.title)) { venue = 'Ciutat de les Arts i les Ciències'; fullAddress = 'Ciutat de les Arts i les Ciències, Av. del Professor López Piñero, 7'; }
+      }
+
+      const finalImg = item.listingImg || getSportsFallback(item.title);
 
       events.push({
         id: `fdm-${events.length + 1}-${Date.now()}`,
@@ -656,7 +678,7 @@ async function scrapeFdmValencia(page, context) {
         startDate: startDateIso,
         endDate: endDateIso,
         venueName: venue,
-        address: `${venue}, València`,
+        address: fullAddress,
         imageUrl: finalImg,
         isFree: false,
         ticketUrl: item.url,
