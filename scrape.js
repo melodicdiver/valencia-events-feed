@@ -703,7 +703,6 @@ async function scrapeFdmValencia(page, context) {
         } else {
           venue = expanded;
         }
-      }
       } else {
         if (/Sant Marcel/i.test(item.title)) { venue = 'Sant Marcel·lí'; fullAddress = 'Avenida de Tres Cruces, junto al Cementerio de Valencia'; }
         else if (/Falles/i.test(item.title)) { venue = 'Plaça de l’Ajuntament'; fullAddress = 'Plaça de l’Ajuntament, València'; }
