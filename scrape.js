@@ -272,7 +272,7 @@ function resolveVenueFromCandidateLines(rawCandidateLines = []) {
   for (const line of candidateLines) {
     const plazaMatch = line.match(/^(?:pl|plaça|plaza)\.?\s+(.*)$/i);
     if (plazaMatch) {
-      const plazaName = toNaturalCase(`Plaça de ${plazaMatch[1].trim()}`);
+      const plazaName = toNaturalCase(`Plaza de ${plazaMatch[1].trim()}`);
       return { venueName: plazaName, address: `${plazaName}, València` };
     }
   }
@@ -686,12 +686,12 @@ async function scrapeFdmValencia(page, context) {
           .replace(/\s*\([^)]*\)/g, '')
           .trim();
 
-        // 2. Expand common road abbreviations to remove misleading period delimiters
+        // 2. Standardize road nouns and abbreviations strictly into Castilian Spanish
         const expanded = cleanStr
-          .replace(/\b(?:l')?av(?:da)?\.\s*/gi, 'Avinguda ')
-          .replace(/\b(?:c\/|c\.)\s*/gi, 'Carrer ')
-          .replace(/\b(?:pl|pza)\.\s*/gi, 'Plaça ')
-          .replace(/\b(?:pg|pº)\.\s*/gi, 'Passeig ')
+          .replace(/\b(?:l')?av(?:inguda|enida|da)?\.?\s+/gi, 'Avenida ')
+          .replace(/\b(?:carrer|calle|c\/|c\.)\s+/gi, 'Calle ')
+          .replace(/\b(?:plaça|placa|plaza|pza|pl)\.?\s+/gi, 'Plaza ')
+          .replace(/\b(?:passeig|paseo|pº|pg)\.?\s+/gi, 'Paseo ')
           .replace(/\bdr\.\s*/gi, 'Doctor ')
           .replace(/\bprof\.\s*/gi, 'Profesor ')
           .trim();
@@ -705,7 +705,7 @@ async function scrapeFdmValencia(page, context) {
         }
       } else {
         if (/Sant Marcel/i.test(item.title)) { venue = 'Sant Marcel·lí'; fullAddress = 'Avenida de Tres Cruces, junto al Cementerio de Valencia'; }
-        else if (/Falles/i.test(item.title)) { venue = 'Plaça de l’Ajuntament'; fullAddress = 'Plaça de l’Ajuntament, València'; }
+        else if (/Falles/i.test(item.title)) { venue = 'Plaza del Ayuntamiento'; fullAddress = 'Plaza del Ayuntamiento, València'; }
         else if (/BBVA|Tennis|Tenis/i.test(item.title)) { venue = 'Sporting Club de Tenis'; fullAddress = 'Sporting Club València. Av. de les Balears, 29'; }
         else if (/Sailing|Vela/i.test(item.title)) { venue = 'Marina de València'; fullAddress = 'Marina de València, Carrer de la Marina Real Juan Carlos I'; }
         else if (/Taekwondo/i.test(item.title)) { venue = 'Pavelló Font de Sant Lluís'; fullAddress = 'Pavelló Font de Sant Lluís, Av. dels Germans Maristes, 16'; }
