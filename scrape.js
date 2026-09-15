@@ -679,13 +679,31 @@ async function scrapeFdmValencia(page, context) {
 
       if (item.parsedAddress) {
         fullAddress = item.parsedAddress;
+
+        // 1. Strip compound action prefixes and parenthetical notes
         const cleanStr = fullAddress
-          .replace(/^(?:salida\s+(?:desde|en)?|meta\s+en|lugar:\s*)/i, '')
+          .replace(/^(?:salida\s+(?:desde\s+(?:el|la|l')?|en\s+(?:el|la|l')?|desde|en)?|meta\s+en|lugar:\s*|arranque\s+desde\s*|a\s+la\s+altura\s+de\s*)/i, '')
           .replace(/\s*\([^)]*\)/g, '')
           .trim();
 
-        const dotSplit = cleanStr.split(/[.\n–—]/);
-        venue = dotSplit[0].trim();
+        // 2. Expand common road abbreviations to remove misleading period delimiters
+        const expanded = cleanStr
+          .replace(/\b(?:l')?av(?:da)?\.\s*/gi, 'Avinguda ')
+          .replace(/\b(?:c\/|c\.)\s*/gi, 'Carrer ')
+          .replace(/\b(?:pl|pza)\.\s*/gi, 'Plaça ')
+          .replace(/\b(?:pg|pº)\.\s*/gi, 'Passeig ')
+          .replace(/\bdr\.\s*/gi, 'Doctor ')
+          .replace(/\bprof\.\s*/gi, 'Profesor ')
+          .trim();
+
+        // 3. Split only if the leading segment is a complete venue name (>= 6 chars)
+        const dotSplit = expanded.split(/[.\n–—]/).map((s) => s.trim()).filter(Boolean);
+        if (dotSplit.length > 1 && dotSplit[0].length >= 6) {
+          venue = dotSplit[0];
+        } else {
+          venue = expanded;
+        }
+      }
       } else {
         if (/Sant Marcel/i.test(item.title)) { venue = 'Sant Marcel·lí'; fullAddress = 'Avenida de Tres Cruces, junto al Cementerio de Valencia'; }
         else if (/Falles/i.test(item.title)) { venue = 'Plaça de l’Ajuntament'; fullAddress = 'Plaça de l’Ajuntament, València'; }
