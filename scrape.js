@@ -768,9 +768,18 @@ async function scrapeValenciaBasket(page) {
 
       if (!opponent) opponent = 'Partido Oficial';
 
+      // Detect Men's vs Women's team designation
+      const isWomenMatch =
+        /\bvalencia\s+bc\b/i.test(rawText) ||
+        /\bfemenin[oa]\b/i.test(rawText) ||
+        /women/i.test(rawText) ||
+        /lf\s*endesa/i.test(rawText);
+
+      const valenciaTeamName = isWomenMatch ? 'Valencia BC' : 'Valencia Basket';
+
       events.push({
         id: `vbc-${events.length + 1}-${Date.now()}`,
-        title: `Valencia Basket vs ${toNaturalCase(opponent)}`,
+        title: `${valenciaTeamName} vs ${toNaturalCase(opponent)}`,
         description: `Partido oficial de baloncesto en el Roig Arena frente al ${opponent}`,
         category: 'esports',
         startDate: iso,
@@ -1049,4 +1058,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
