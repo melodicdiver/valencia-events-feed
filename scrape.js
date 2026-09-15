@@ -41,7 +41,7 @@ const KNOWN_VENUES = [
   { pattern: /palau de la m[uú]sica/i, name: 'Palau de la Música', address: 'Passeig de l’Albereda, 30, 46023 València' },
   { pattern: /jardins del palau/i, name: 'Jardins del Palau', address: 'Passeig de l’Albereda, 30, 46023 València' },
   { pattern: /mestalla/i, name: 'Estadio de Mestalla', address: 'Avinguda de Suècia, s/n, 46010 València' },
-  { pattern: /ciutat de val[èe]ncia/i, name: 'Ciutat de València', address: 'Carrer de Sant Vicent de Paül, 44, 46019 València' },
+  { pattern: /ciutat de val[èe]ncia/i, name: 'Estadio Ciutat de València', address: 'Carrer de Sant Vicent de Paül, 44, 46019 València' },
   { pattern: /fonteta|font de sant llu[ií]s/i, name: 'Pavelló Font de Sant Lluís', address: 'Avinguda dels Germans Maristes, 16, 46013 València' },
   { pattern: /roig arena/i, name: 'Roig Arena', address: 'Carrer del Bomber Ramon Duart, s/n, 46013 València' },
 ];
@@ -913,10 +913,10 @@ async function scrapeLevanteUD(page) {
       events.push({
         id: `lud-${events.length + 1}-${Date.now()}`,
         title: `Levante UD vs ${toNaturalCase(opponent)}`,
-        description: `Partido oficial de LaLiga en el Estadi Ciutat de València frente al ${opponent}`,
+        description: `Partido oficial de LaLiga en el Estadio Ciutat de València frente al ${opponent}`,
         category: 'esports',
         startDate: iso,
-        venueName: 'Ciutat de València',
+        venueName: 'Estadio Ciutat de València',
         address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
         imageUrl: SPORTS_FALLBACKS.football,
         isFree: false,
