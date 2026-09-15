@@ -610,6 +610,134 @@ async function scrapeFdmValencia(page, context) {
             if (res.ok()) {
               const html = await res.text();
 
+              // Systematic Address Extraction: Extract slice between Map and Organizer metadata
+              const mapAnchorMatch = html.search(/(?:Abrir en Maps|google\.com\/maps|maps\.google\.com)/i);
+              if (mapAnchorMatch !== -1) {
+                const afterMap = html.slice(mapAnchorMatch, mapAnchorMatch + 3500);
+                const endBlockMatch = afterMap.search(/(?:Entidad organizadora|Categor[ií]as del evento|Quiero inscribirme)/i);
+                const sidebarSlice = endBlockMatch !== -1 ? afterMap.slice(0, endBlockMatch) : afterMap;
+
+                const candidateLines = sidebarSlice
+                  .replace(/<(?:br|\/p|\/div|\/li|h\d)[^>]*>/gi, '\n')
+                  .replace(/<[^>]+>/g, ' ')
+                  .replace(/&nbsp;/g, ' ')
+                  .replace(/&amp;/g, '&')
+                  .split('\n')
+                  .map((l) => l.trim())
+                  .filter(Boolean);
+
+                const addressLine = candidateLines.find((line) => {
+                  const lower = line.toLowerCase();
+                  if (lower.length < 5 || lower.length > 160) return false;
+                  if (/abrir en maps|google|t[eé]rminos|datos del mapa|teclas|notificar|combinaciones|inscribirme/i.test(lower)) return false;
+                  if (/^https?:\/\//i.test(lower) || /m[aá]s informaci[oó]n/i.test(lower)) return false;
+                  // Skip lines that are purely dates or times
+                  if (/\b(?:\d{1,2}:\d{2}|\d{1,2}\s+(?:de\s+)?[a-z]+|s[aá]bado|domingo|lunes|martes|mi[eé]rcoles|jueves|viernes)\b/i.test(lower)) return false;
+                  return true;
+                });
+
+                if (addressLine) {
+                  item.parsedAddress = addressLine.replace(/\s+/g, ' ').trim();
+                }
+              }
+
+              // Fallback to contextual sentence matching in body text if map sidebar was omitted
+              if (!item.parsedAddress) {
+                const cleanBody = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+                const bodyMatch = cleanBody.match(/(?:tendr[aá]\s+lugar\s+en|arrancar[aá]\s+(?:a\s+las\s+\d{1,2}:\d{2}\s+horas\s+)?desde|celebrar[aá]\s+en|salida\s+desde)\s+([^,.;]{4,75})/i);
+                if (bodyMatch && bodyMatch[1]) {
+                  item.parsedAddress = bodyMatch[1].trim();
+                }
+              }
+
+              // High-res og:image extraction fallback
+              if (!item.img) {
+                const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                                html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+                if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
+                  item.img = ogMatch[1].replace(/&amp;/g, '&');
+                }
+              }
+            }
+          } catch (_) {}
+        })
+      );
+    }
+
+    for (const item of rawItems) {
+      let startDateIso = null;
+      let endDateIso = undefined;
+
+      const rangeMatch = item.containerText.match(/\b(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\s*[-–—al\s]+\s*(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+de)?\s+(\d{4})\b/i);
+      if (rangeMatch) {
+        startDateIso = parseSpanishDateToIso(rangeMatch[1], rangeMatch[2], rangeMatch[3]);
+        endDateIso = parseSpanishDateToIso(rangeMatch[4], rangeMatch[5], rangeMatch[6]) || undefined;
+      } else {
+        startDateIso = extractDateFromAnyText(item.rawText) || extractDateFromAnyText(item.dateText);
+      }
+
+      if (!startDateIso) continue;
+      const dt = new Date(startDateIso);
+      if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+
+      let venue = 'València';
+      let fullAddress = 'València';
+
+      if (item.parsedAddress) {
+        fullAddress = item.parsedAddress;
+        // Clean out action prefixes like "Salida desde " or parenthetical notes
+        const cleanStr = fullAddress
+          .replace(/^(?:salida\s+(?:desde|en)?|meta\s+en|lugar:\s*)/i, '')
+          .replace(/\s*\([^)]*\)/g, '')
+          .trim();
+
+        const dotSplit = cleanStr.split(/[.\n–—]/);
+        venue = dotSplit[0].trim();
+      } else {
+        // Last-resort fallback for known major recurrent fixtures
+        if (/Sant Marcel/i.test(item.title)) { venue = 'Sant Marcel·lí'; fullAddress = 'Avenida de Tres Cruces, junto al Cementerio de Valencia'; }
+        else if (/Falles/i.test(item.title)) { venue = 'Plaça de l’Ajuntament'; fullAddress = 'Plaça de l’Ajuntament, València'; }
+        else if (/BBVA|Tennis|Tenis/i.test(item.title)) { venue = 'Sporting Club de Tenis'; fullAddress = 'Sporting Club València. Av. de les Balears, 29'; }
+        else if (/Sailing|Vela/i.test(item.title)) { venue = 'Marina de València'; fullAddress = 'Marina de València, Carrer de la Marina Real Juan Carlos I'; }
+        else if (/Taekwondo/i.test(item.title)) { venue = 'Pavelló Font de Sant Lluís'; fullAddress = 'Pavelló Font de Sant Lluís, Av. dels Germans Maristes, 16'; }
+        else if (/Dogfy/i.test(item.title)) { venue = 'Parc de Capçalera'; fullAddress = 'Parc de Capçalera, inmediaciones del Puente Nueve de Octubre'; }
+        else if (/Jaula/i.test(item.title)) { venue = 'Ciutat de les Arts i les Ciències'; fullAddress = 'Ciutat de les Arts i les Ciències, Av. del Professor López Piñero, 7'; }
+      }
+
+      const finalImg = item.img || getSportsFallback(item.title);
+
+      events.push({
+        id: `fdm-${events.length + 1}-${Date.now()}`,
+        title: toNaturalCase(item.title),
+        description: `Evento deportivo oficial en València`,
+        category: 'esports',
+        startDate: startDateIso,
+        endDate: endDateIso,
+        venueName: venue,
+        address: fullAddress,
+        imageUrl: finalImg,
+        isFree: false,
+        ticketUrl: item.url,
+        url: item.url,
+      });
+    }
+  } catch (err) {
+    console.warn(`FDM València live scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} live FDM València events.`);
+  return events;
+}
+
+    // Fetch detail pages in parallel to extract precise addresses and photos
+    if (context && rawItems.length > 0) {
+      await Promise.allSettled(
+        rawItems.map(async (item) => {
+          try {
+            const res = await context.request.get(item.url, { timeout: 6000 });
+            if (res.ok()) {
+              const html = await res.text();
+
               // Robust address matching beneath map block
               const addrMatch = html.match(/(?:<i[^>]*class=["'][^"']*map-marker[^"']*["'][^>]*><\/i>|Abrir en Maps.*?<\/a>)(?:[\s\S]*?<p[^>]*>)?([\s\S]*?)(?:<\/p>|<div|<\/div>)/i) ||
                                 html.match(/<div[^>]*class=["'][^"']*(?:direccion|address|lugar|ubicacion)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) ||
