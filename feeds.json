@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-17T12:00:00Z",
+  "corsProxies": [
+    "https://api.allorigins.win/raw?url=",
+    "https://corsproxy.io/?url="
+  ],
+  "feeds": [
+    {
+      "id": "lasprovincias",
+      "name": "Las Provincias",
+      "sourceName": "Las Provincias",
+      "category": "Valencia",
+      "defaultCategory": "local",
+      "url": "https://www.lasprovincias.es/rss/2.0/?seccion=valencia",
+      "domain": "lasprovincias.es",
+      "color": "#005999",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=lasprovincias.es&sz=128"
+    },
+    {
+      "id": "levante",
+      "name": "Levante-EMV",
+      "sourceName": "Levante-EMV",
+      "category": "València",
+      "defaultCategory": "local",
+      "url": "https://www.levante-emv.com/rss/",
+      "domain": "levante-emv.com",
+      "color": "#0072BC",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=levante-emv.com&sz=128"
+    },
+    {
+      "id": "eldiariocv",
+      "name": "elDiario.es CV",
+      "sourceName": "elDiario.es CV",
+      "category": "Comunitat",
+      "defaultCategory": "local",
+      "url": "https://www.eldiario.es/rss/comunitat-valenciana/",
+      "domain": "eldiario.es",
+      "color": "#006494",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=eldiario.es&sz=128"
+    },
+    {
+      "id": "apunt",
+      "name": "À Punt",
+      "sourceName": "À Punt",
+      "category": "local",
+      "defaultCategory": "local",
+      "url": "https://www.apuntmedia.es/rss/actualitat",
+      "fallbackUrl": "https://www.apuntmedia.es/rss/",
+      "domain": "apuntmedia.es",
+      "color": "#FF5A00",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=apuntmedia.es&sz=128"
+    },
+    {
+      "id": "superdeporte-deportes",
+      "name": "Superdeporte",
+      "sourceName": "Superdeporte",
+      "category": "deportes",
+      "defaultCategory": "deportes",
+      "url": "https://www.superdeporte.es/rss/section/43060",
+      "domain": "superdeporte.es",
+      "color": "#E30613",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
+    },
+    {
+      "id": "superdeporte-valenciacf",
+      "name": "Superdeporte",
+      "sourceName": "Superdeporte",
+      "category": "deportes",
+      "defaultCategory": "deportes",
+      "url": "https://www.superdeporte.es/rss/section/43002",
+      "domain": "superdeporte.es",
+      "color": "#E30613",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
+    },
+    {
+      "id": "superdeporte-levanteud",
+      "name": "Superdeporte",
+      "sourceName": "Superdeporte",
+      "category": "deportes",
+      "defaultCategory": "deportes",
+      "url": "https://www.superdeporte.es/rss/section/43013",
+      "domain": "superdeporte.es",
+      "color": "#E30613",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
+    },
+    {
+      "id": "superdeporte-villarreal",
+      "name": "Superdeporte",
+      "sourceName": "Superdeporte",
+      "category": "deportes",
+      "defaultCategory": "deportes",
+      "url": "https://www.superdeporte.es/rss/section/1587748",
+      "domain": "superdeporte.es",
+      "color": "#E30613",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
+    },
+    {
+      "id": "superdeporte-futbolvalenciano",
+      "name": "Superdeporte",
+      "sourceName": "Superdeporte",
+      "category": "deportes",
+      "defaultCategory": "deportes",
+      "url": "https://www.superdeporte.es/rss/section/1591374",
+      "domain": "superdeporte.es",
+      "color": "#E30613",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
+    },
+    {
+      "id": "superdeporte-valenciabasket",
+      "name": "Superdeporte",
+      "sourceName": "Superdeporte",
+      "category": "deportes",
+      "defaultCategory": "deportes",
+      "url": "https://www.superdeporte.es/rss/section/43014",
+      "domain": "superdeporte.es",
+      "color": "#E30613",
+      "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
+    }
+  ]
+}
