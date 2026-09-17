@@ -116,18 +116,6 @@
       "domain": "superdeporte.es",
       "color": "#E30613",
       "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=superdeporte.es&sz=128"
-    },
-    {
-  "id": "valenciaplaza",
-  "name": "Valencia Plaza",
-  "sourceName": "Valencia Plaza",
-  "category": "Valencia",
-  "defaultCategory": "local",
-  "url": "https://valenciaplaza.com/rss",
-  "fallbackUrl": "https://valenciaplaza.com/feed",
-  "domain": "valenciaplaza.com",
-  "color": "#D32F2F",
-  "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=valenciaplaza.com&sz=128"
-}
+    }
   ]
 }
