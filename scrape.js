@@ -44,6 +44,8 @@ const KNOWN_VENUES = [
   { pattern: /ciutat de val[èe]ncia/i, name: 'Ciutat de València', address: 'Carrer de Sant Vicent de Paül, 44, 46019 València' },
   { pattern: /fonteta|font de sant llu[ií]s/i, name: 'Pavelló Font de Sant Lluís', address: 'Avinguda dels Germans Maristes, 16, 46013 València' },
   { pattern: /roig arena/i, name: 'Roig Arena', address: 'Carrer del Bomber Ramon Duart, s/n, 46013 València' },
+  { pattern: /antonio puchades|paterna|ciutat esportiva del valencia|ciutat esportiva de paterna/i, name: 'Estadio Antonio Puchades', address: 'Ciutat Esportiva de Paterna, Carrer dels Jocs Taronja, 46988 Paterna, València' },
+  { pattern: /bu[ñn]ol|ciutat esportiva de bu[ñn]ol|ciudad deportiva de bu[ñn]ol/i, name: 'Ciudad Deportiva de Buñol', address: 'Camino del Oliveral, s/n, 46360 Buñol, València' },
 ];
 
 const MONTH_MAP = {
@@ -79,7 +81,7 @@ function toNaturalCase(str) {
   const trimmed = str.trim();
 
   const ACRONYMS = new Set([
-    'BBVA', 'WTA', 'ATP', 'ACB', 'FDM', 'IVAM', 'CCCC', 'TEM', 'MUVIM', 'CAHH', 'VCF', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'XXI', '3X3', 'XLVIII', '15K'
+    'BBVA', 'WTA', 'ATP', 'ACB', 'FDM', 'IVAM', 'CCCC', 'TEM', 'MUVIM', 'CAHH', 'VCF', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'XXI', '3X3', 'XLVIII', '15K', 'RFEF', 'FUTFEM', 'UWCL', 'LF'
   ]);
   const lowerWords = new Set(['de', 'del', "d'", 'd’', 'el', 'la', 'los', 'las', 'en', 'i', 'y', 'al', 'als', 'vs', 'a', 'por', 'con']);
   const isRoman = (w) => /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/i.test(w) && w.length >= 1;
@@ -301,7 +303,7 @@ function getSportsFallback(title) {
   if (/sailing|vela|nautic/i.test(t)) return SPORTS_FALLBACKS.sailing;
   if (/basket|baloncesto|jaula/i.test(t)) return SPORTS_FALLBACKS.basket;
   if (/taekwondo|judo|karate|boxeo|lucha/i.test(t)) return SPORTS_FALLBACKS.combat;
-  return SPORTS_FALLBACKS.running;
+  return SPORTS_FALLBACKS.football;
 }
 
 function isValidDetailImg(url) {
@@ -820,14 +822,24 @@ async function scrapeValenciaBasket(page) {
 
       const valenciaTeamName = isWomenMatch ? 'Valencia BC' : 'Valencia Basket';
 
+      const isFonteta = /fonteta|font de sant llu[ií]s/i.test(rawText);
+      const venueName = isFonteta ? 'Pavelló Font de Sant Lluís' : 'Roig Arena';
+      const address = isFonteta
+        ? 'Avinguda dels Germans Maristes, 16, 46013 València'
+        : 'Carrer del Bomber Ramon Duart, s/n, 46013 València';
+
+      const compName = isWomenMatch
+        ? (/euroleague|euroliga/i.test(rawText) ? 'EuroLeague Women' : 'LF Endesa')
+        : (/euroleague|euroliga/i.test(rawText) ? 'EuroLeague' : 'Liga Endesa ACB');
+
       events.push({
         id: `vbc-${events.length + 1}-${Date.now()}`,
         title: `${valenciaTeamName} vs ${toNaturalCase(opponent)}`,
-        description: `Partido oficial de baloncesto en el Roig Arena frente al ${opponent}`,
+        description: `Partido oficial de ${compName} en el ${venueName} frente al ${opponent}`,
         category: 'esports',
         startDate: iso,
-        venueName: 'Roig Arena',
-        address: 'Carrer del Bomber Ramon Duart, s/n, 46013 València',
+        venueName: venueName,
+        address: address,
         imageUrl: SPORTS_FALLBACKS.basket,
         isFree: false,
         ticketUrl: CALENDAR_URL,
@@ -848,59 +860,89 @@ async function scrapeValenciaCF(page) {
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const URLS = ['https://www.valenciacf.com/tickets', 'https://www.valenciacf.com/entradas'];
 
-  try {
-    await page.goto('https://www.valenciacf.com/tickets', { waitUntil: 'domcontentloaded', timeout: 25000 });
-    await page.waitForTimeout(2000);
+  for (const url of URLS) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+      await page.waitForTimeout(2000);
 
-    const matches = await page.evaluate(() => {
-      const items = [];
-      const blocks = document.querySelectorAll('article, [class*="card"], [class*="match"], li');
+      const matches = await page.evaluate(() => {
+        const items = [];
+        const blocks = document.querySelectorAll('article, [class*="card"], [class*="match"], [class*="fixture"], li');
 
-      blocks.forEach((b) => {
-        const text = b.innerText || '';
-        if (/Valencia/i.test(text) && (/Mestalla/i.test(text) || /entradas|ticket|comprar/i.test(text))) {
-          const btn = b.querySelector('a[href*="ticket"], a[href*="entradas"], a');
-          items.push({
-            rawText: text,
-            link: btn ? btn.href : 'https://www.valenciacf.com/tickets',
-          });
-        }
+        blocks.forEach((b) => {
+          const text = b.innerText || '';
+          if (
+            /Valencia/i.test(text) &&
+            (/Mestalla|Puchades|Paterna|Femenin|Liga\s*F/i.test(text) || /entradas|ticket|comprar/i.test(text))
+          ) {
+            const btn = b.querySelector('a[href*="ticket"], a[href*="entradas"], a');
+            const imgEl = b.querySelector('img');
+            items.push({
+              rawText: text,
+              link: btn ? btn.href : 'https://www.valenciacf.com/tickets',
+              img: imgEl ? imgEl.src || imgEl.getAttribute('data-src') : null,
+            });
+          }
+        });
+        return items;
       });
-      return items;
-    });
 
-    for (const m of matches) {
-      const iso = extractDateFromAnyText(m.rawText);
-      if (!iso) continue;
-      const dt = new Date(iso);
-      if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+      for (const m of matches) {
+        const iso = extractDateFromAnyText(m.rawText);
+        if (!iso) continue;
+        const dt = new Date(iso);
+        if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
-      let opponent = 'LaLiga Match';
-      const lines = m.rawText.split('\n').map((l) => l.trim()).filter(Boolean);
-      for (const l of lines) {
-        if (!/valencia|mestalla|ticket|entradas|laliga|vip|jornada|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(l) && l.length > 2 && l.length < 35) {
-          opponent = l;
-          break;
+        const isWomen =
+          /femenin[oa]|futfem|\bliga\s*f\b|puchades|paterna|vcf\s*fem/i.test(m.rawText) ||
+          /femenin/i.test(m.link);
+
+        const isPuchades = /puchades|paterna|ciutat esportiva/i.test(m.rawText);
+        const venueName = isPuchades || (isWomen && !/mestalla/i.test(m.rawText))
+          ? 'Estadio Antonio Puchades'
+          : 'Estadio de Mestalla';
+
+        const address = venueName === 'Estadio Antonio Puchades'
+          ? 'Ciutat Esportiva de Paterna, Carrer dels Jocs Taronja, 46988 Paterna, València'
+          : 'Avinguda de Suècia, s/n, 46010 València';
+
+        let opponent = isWomen ? 'Liga F Match' : 'LaLiga Match';
+        const lines = m.rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+        for (const l of lines) {
+          if (
+            !/valencia|femenin|vcf|mestalla|puchades|paterna|ticket|entradas|laliga|liga\s*f|copa|vip|jornada|\d{1,2}:\d{2}|\d{1,2}\s+[a-z]+/i.test(l) &&
+            l.length > 2 &&
+            l.length < 35
+          ) {
+            opponent = l;
+            break;
+          }
         }
+
+        const teamTitle = isWomen ? 'Valencia CF Femenino' : 'Valencia CF';
+        const competition = isWomen
+          ? (/copa/i.test(m.rawText) ? 'Copa de la Reina' : 'Liga F')
+          : (/champions/i.test(m.rawText) ? 'UEFA Champions League' : /copa/i.test(m.rawText) ? 'Copa del Rey' : 'LaLiga');
+
+        events.push({
+          id: `vcf-${events.length + 1}-${Date.now()}`,
+          title: `${teamTitle} vs ${toNaturalCase(opponent)}`,
+          description: `Partido oficial de ${competition} en el ${venueName} frente al ${opponent}`,
+          category: 'esports',
+          startDate: iso,
+          venueName: venueName,
+          address: address,
+          imageUrl: m.img || SPORTS_FALLBACKS.football,
+          isFree: false,
+          ticketUrl: m.link,
+          url: m.link,
+        });
       }
-
-      events.push({
-        id: `vcf-${events.length + 1}-${Date.now()}`,
-        title: `Valencia CF vs ${toNaturalCase(opponent)}`,
-        description: `Partido oficial en el Camp de Mestalla frente al ${opponent}`,
-        category: 'esports',
-        startDate: iso,
-        venueName: 'Estadio de Mestalla',
-        address: 'Avinguda de Suècia, s/n, 46010 València',
-        imageUrl: SPORTS_FALLBACKS.football,
-        isFree: false,
-        ticketUrl: m.link,
-        url: m.link,
-      });
+    } catch (err) {
+      console.warn(`Valencia CF live scrape notice (${url}): ${err.message}`);
     }
-  } catch (err) {
-    console.warn(`Valencia CF live scrape notice: ${err.message}`);
   }
 
   console.log(`Ingested ${events.length} live Valencia CF matches.`);
@@ -916,11 +958,15 @@ async function scrapeLevanteUD(page) {
 
   try {
     await page.goto('https://ticketing.levanteud.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(2500);
 
     const matches = await page.evaluate(() => {
       const items = [];
-      const links = Array.from(document.querySelectorAll('a[href*="/liga-"], a[href*="/entradas/"], a[href*="levante"]'));
+      const links = Array.from(
+        document.querySelectorAll(
+          'a.evento, a[href*="/liga-"], a[href*="/entradas/"], a[href*="levante"], a[href*="futfem"], a[href*="femenino"], a[href*="bunol"]'
+        )
+      );
       const seen = new Set();
 
       for (const a of links) {
@@ -928,13 +974,19 @@ async function scrapeLevanteUD(page) {
         if (seen.has(href) || href.includes('javascript') || href.endsWith('.pdf')) continue;
 
         const container = a.closest('article, [class*="card"], [class*="item"], div') || a;
-        const text = container.innerText || '';
+        const text = (container.innerText || '') + ' ' + (a.getAttribute('title') || '');
 
-        if (/Levante/i.test(text) && (/vs\.?|x\s+/i.test(text) || /entradas|comprar/i.test(text))) {
+        if (
+          (/Levante/i.test(text) || /bunol|futfem/i.test(href)) &&
+          (/vs\.?|x\s+/i.test(text) || /entradas|comprar/i.test(text) || a.classList.contains('evento'))
+        ) {
           seen.add(href);
+          const imgEl = container.querySelector('img');
           items.push({
             href,
             rawText: text,
+            titleAttr: a.getAttribute('title') || '',
+            img: imgEl ? imgEl.src || imgEl.getAttribute('data-src') : null,
           });
         }
       }
@@ -947,21 +999,52 @@ async function scrapeLevanteUD(page) {
       const dt = new Date(iso);
       if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
-      let opponent = 'LaLiga Match';
-      const matchTitle = m.rawText.match(/Levante(?:\s+UD)?\s+(?:vs\.?|x|-)\s+([A-Za-zÁ-ÿ\s]+)/i);
+      const isWomen =
+        /femenin[oa]|futfem|\bliga\s*f\b|bu[ñn]ol/i.test(m.rawText) ||
+        /femenin|futfem|bunol/i.test(m.href);
+
+      const isBunol =
+        /bu[ñn]ol|ciutat esportiva/i.test(m.rawText) ||
+        /bunol/i.test(m.href);
+
+      const venueName = isBunol
+        ? 'Ciudad Deportiva de Buñol'
+        : (/ciutat de val[èe]ncia/i.test(m.rawText) || !isWomen ? 'Ciutat de València' : 'Ciudad Deportiva de Buñol');
+
+      const address = venueName === 'Ciudad Deportiva de Buñol'
+        ? 'Camino del Oliveral, s/n, 46360 Buñol, València'
+        : 'Carrer de Sant Vicent de Paül, 44, 46019 València';
+
+      const competition = isWomen
+        ? (/primera\s*federaci[oó]n|futfem/i.test(m.rawText + ' ' + m.href)
+            ? 'Primera Federación FutFem'
+            : /segunda\s*federaci[oó]n/i.test(m.rawText + ' ' + m.href)
+            ? 'Segunda Federación FutFem'
+            : /copa/i.test(m.rawText) ? 'Copa de la Reina' : 'Liga F')
+        : (/copa/i.test(m.rawText) ? 'Copa del Rey' : 'LaLiga Hypermotion');
+
+      const teamTitle = isWomen ? 'Levante UD Femenino' : 'Levante UD';
+
+      let opponent = isWomen ? 'Liga F Match' : 'LaLiga Match';
+
+      const candidateTitle = m.titleAttr || m.rawText;
+      const matchTitle = candidateTitle.match(/Levante(?:\s+UD)?(?:\s+Femenino|\s+Fem)?\s+(?:vs\.?|x|-)\s+([A-Za-zÁ-ÿ\s]+)/i);
       if (matchTitle) {
-        opponent = matchTitle[1].split('\n')[0].trim();
+        opponent = matchTitle[1]
+          .split('\n')[0]
+          .replace(/\b(?:Buñol|Entradas|Comprar|Ver)\b/gi, '')
+          .trim();
       }
 
       events.push({
         id: `lud-${events.length + 1}-${Date.now()}`,
-        title: `Levante UD vs ${toNaturalCase(opponent)}`,
-        description: `Partido oficial de LaLiga en el Estadi Ciutat de València frente al ${opponent}`,
+        title: `${teamTitle} vs ${toNaturalCase(opponent)}`,
+        description: `Partido oficial de ${competition} en ${venueName} frente al ${opponent}`,
         category: 'esports',
         startDate: iso,
-        venueName: 'Ciutat de València',
-        address: 'Carrer de Sant Vicent de Paül, 44, 46019 València',
-        imageUrl: SPORTS_FALLBACKS.football,
+        venueName: venueName,
+        address: address,
+        imageUrl: m.img || SPORTS_FALLBACKS.football,
         isFree: false,
         ticketUrl: m.href,
         url: m.href,
