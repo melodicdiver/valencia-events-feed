@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Política de Privacidad · Mi Valencia</title>
+  <title>Política de Privacidad / Privacy Policy · Mi Valencia</title>
   <style>
     :root {
       --bg: #F8F9FA;
@@ -12,6 +12,7 @@
       --text-muted: #636366;
       --accent: #E85D04;
       --border: #E5E5EA;
+      --btn-inactive-bg: #F2F2F7;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -20,6 +21,7 @@
         --text: #F2F2F7;
         --text-muted: #8E8E93;
         --border: #2C2C2E;
+        --btn-inactive-bg: #2C2C2E;
       }
     }
     body {
@@ -31,7 +33,7 @@
       padding: 32px 16px;
     }
     .container {
-      max-width: 760px;
+      max-width: 780px;
       margin: 0 auto;
       background: var(--card-bg);
       padding: 36px 32px;
@@ -39,79 +41,199 @@
       border: 1px solid var(--border);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
     }
-    h1 { font-size: 26px; margin-top: 0; color: var(--accent); }
-    h2 { font-size: 19px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand-tag {
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .lang-switcher {
+      display: inline-flex;
+      background: var(--btn-inactive-bg);
+      padding: 3px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+    .lang-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .lang-btn.active {
+      background: var(--accent);
+      color: #FFFFFF;
+      box-shadow: 0 2px 6px rgba(232, 93, 4, 0.3);
+    }
+    h1 { font-size: 26px; margin: 0 0 8px 0; color: var(--text); }
+    h2 { font-size: 19px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; color: var(--text); }
     p, li { font-size: 15px; color: var(--text); }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 6px; }
     .updated { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
     .contact-box {
       background: rgba(232, 93, 4, 0.08);
       border-left: 4px solid var(--accent);
-      padding: 12px 16px;
+      padding: 14px 18px;
       border-radius: 6px;
       margin: 20px 0;
+      font-size: 14px;
     }
-    a { color: var(--accent); text-decoration: none; }
+    a { color: var(--accent); text-decoration: none; font-weight: 500; }
     a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Política de Privacidad · Mi Valencia</h1>
-    <div class="updated">Última actualización: 21 de septiembre de 2026</div>
-
-    <p>Esta Política de Privacidad describe cómo la aplicación móvil <strong>Mi Valencia</strong> (en adelante, «la Aplicación») trata la información cuando usted la utiliza. Nos comprometemos a respetar su privacidad conforme al <strong>Reglamento General de Protección de Datos (RGPD / GDPR - UE 2016/679)</strong> y la <strong>Ley Orgánica 3/2018 (LOPDGDD)</strong> de España.</p>
-
-    <div class="contact-box">
-      <strong>Responsable del Tratamiento:</strong><br>
-      Desarrollador independiente de la aplicación Mi Valencia.<br>
-      Correo electrónico de contacto: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>
+    <div class="top-bar">
+      <span class="brand-tag">Mi Valencia</span>
+      <div class="lang-switcher">
+        <button class="lang-btn active" id="btn-es" onclick="switchLanguage('es')">Español</button>
+        <button class="lang-btn" id="btn-en" onclick="switchLanguage('en')">English</button>
+      </div>
     </div>
 
-    <h2>1. Datos que NO recopilamos</h2>
-    <p>La privacidad de nuestros usuarios es una prioridad por diseño:</p>
-    <ul>
-      <li><strong>Sin cuentas ni registros:</strong> No solicitamos nombre, correo electrónico, teléfono ni contraseñas. No existe sistema de inicio de sesión ni base de datos de usuarios.</li>
-      <li><strong>Sin seguimiento de geolocalización continuo:</strong> La Aplicación no rastrea ni almacena su ubicación GPS en segundo plano ni envía sus coordenadas a servidores propios.</li>
-      <li><strong>Sin acceso a datos sensibles:</strong> No accedemos a sus contactos, cámara, micrófono ni fotos de su dispositivo.</li>
-    </ul>
+    <!-- SPANISH CONTENT -->
+    <div id="content-es">
+      <h1>Política de Privacidad</h1>
+      <div class="updated">Última actualización: 21 de septiembre de 2026</div>
 
-    <h2>2. Datos almacenados localmente en su dispositivo</h2>
-    <p>La Aplicación guarda exclusivamente información técnica y de configuración en la memoria local de su dispositivo (almacenamiento local / caché offline) para asegurar el funcionamiento de la aplicación:</p>
-    <ul>
-      <li>Preferencia de idioma (Español, Valenciano, Inglés).</li>
-      <li>Modo visual de apariencia (Tema claro, oscuro o automático según el sistema).</li>
-      <li>Selección y filtro de fuentes de noticias preferidas.</li>
-      <li>Preferencia de vibración háptica activada o desactivada.</li>
-      <li>Estado de compra «Sin Anuncios» para desbloquear las funciones adquiridas.</li>
-      <li>Caché temporal de noticias, tiempo meteorológico y eventos para permitir el uso sin conexión y reducir el consumo de datos móviles.</li>
-    </ul>
-    <p>Estos datos permanecen estrictamente en su dispositivo y se eliminan al desinstalar la Aplicación o borrar sus datos de almacenamiento.</p>
+      <p>Esta Política de Privacidad describe cómo la aplicación móvil <strong>Mi Valencia</strong> (en adelante, «la Aplicación») trata la información cuando usted la utiliza. Nos comprometemos a respetar su privacidad conforme al <strong>Reglamento General de Protección de Datos (RGPD / GDPR - UE 2016/679)</strong> y la <strong>Ley Orgánica 3/2018 (LOPDGDD)</strong> de España.</p>
 
-    <h2>3. Servicios de terceros y llamadas a APIs</h2>
-    <p>Para ofrecer la información de Valencia en tiempo real, la Aplicación consulta servicios externos que pueden recibir datos técnicos de conexión (como la dirección IP y cabeceras HTTP estándar):</p>
-    <ul>
-      <li><strong>Datos meteorológicos:</strong> Proporcionados por la API de <em>Open-Meteo</em>. No se transmiten datos personales.</li>
-      <li><strong>Noticias locales y titulares:</strong> Se obtienen de fuentes públicas RSS (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). Al pulsar sobre una noticia para leer el artículo completo, el enlace se abre en el navegador integrado con la web oficial del medio, la cual se rige por su propia política de cookies y privacidad.</li>
-      <li><strong>Agenda cultural y eventos:</strong> Agregados a partir de fuentes públicas del Ajuntament de València y repositorios de datos abiertos.</li>
-    </ul>
+      <div class="contact-box">
+        <strong>Responsable del Tratamiento:</strong> Desarrollador independiente de Mi Valencia.<br>
+        <strong>Correo de contacto:</strong> <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>
+      </div>
 
-    <h2>4. Pagos y Compras en la Aplicación (In-App Purchases)</h2>
-    <p>Mi Valencia ofrece una compra opcional de pago único para eliminar la publicidad («Modo Sin Anuncios»). Todas las transacciones son gestionadas de forma íntegra por:</p>
-    <ul>
-      <li><strong>Apple Inc.</strong> (a través de Apple App Store / StoreKit) para dispositivos iOS.</li>
-      <li><strong>Google LLC</strong> (a través de Google Play Billing) para dispositivos Android.</li>
-    </ul>
-    <p>El desarrollador de Mi Valencia <strong>no tiene acceso ni recopila en ningún caso</strong> números de tarjeta bancaria, cuentas bancarias, direcciones de facturación ni identificadores de pago del usuario.</p>
+      <h2>1. Datos que NO recopilamos</h2>
+      <p>La Aplicación ha sido diseñada bajo el principio de minimización estricta de datos:</p>
+      <ul>
+        <li><strong>Sin cuentas ni registros:</strong> No solicitamos nombre, correo, teléfono ni contraseñas. No existe sistema de inicio de sesión ni base de datos de usuarios.</li>
+        <li><strong>Sin seguimiento de geolocalización continuo:</strong> No rastreamos ni almacenamos su posición GPS en segundo plano ni transmitimos coordenadas a servidores propios.</li>
+        <li><strong>Sin acceso a datos sensibles:</strong> No solicitamos acceso a su agenda, fotos, cámara ni micrófono.</li>
+      </ul>
 
-    <h2>5. Publicidad (si procede)</h2>
-    <p>En su versión gratuita, la Aplicación puede mostrar publicidad a través de redes publicitarias estándar (como Google AdMob). Estas redes pueden recopilar identificadores de publicidad no vinculados (como IDFA en iOS o AAID en Android) previa solicitud de consentimiento del usuario conforme a la normativa europea de protección de datos y el marco App Tracking Transparency (ATT) de Apple. Si adquiere el «Modo Sin Anuncios», los identificadores y anuncios publicitarios son desactivados.</p>
+      <h2>2. Datos almacenados localmente en su dispositivo</h2>
+      <p>La Aplicación almacena información técnica y de configuración exclusivamente en la memoria local de su dispositivo para garantizar el funcionamiento:</p>
+      <ul>
+        <li>Preferencia de idioma (Español, Valenciano, Inglés).</li>
+        <li>Preferencia de tema visual (Claro, Oscuro o Automático del sistema).</li>
+        <li>Filtro y selección de fuentes de noticias activas.</li>
+        <li>Ajuste de vibración háptica activada o desactivada.</li>
+        <li>Estado de compra «Sin Anuncios» para desbloquear las funciones adquiridas.</li>
+        <li>Caché temporal de noticias, tiempo meteorológico y eventos para permitir el uso sin conexión y ahorrar datos móviles.</li>
+      </ul>
+      <p>Estos datos no salen de su teléfono y se eliminan al desinstalar la Aplicación o borrar sus datos de almacenamiento.</p>
 
-    <h2>6. Base legal y Ejercicio de Derechos (RGPD)</h2>
-    <p>El tratamiento técnico de datos se fundamenta en la ejecución del servicio y en el consentimiento del usuario para las opciones de configuración.</p>
-    <p>Puesto que no conservamos datos personales identificables ni gestionamos cuentas en servidores externos, la mayoría de los derechos de acceso o rectificación se ejercen directamente restableciendo o desinstalando la aplicación. No obstante, para cualquier consulta o ejercicio de derechos (acceso, supresión, limitación), puede escribir a <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+      <h2>3. Servicios de terceros y conexiones de red</h2>
+      <p>Para ofrecer la información de Valencia en tiempo real, la Aplicación consulta servicios externos que pueden recibir datos técnicos de conexión (como la dirección IP y cabeceras HTTP estándar):</p>
+      <ul>
+        <li><strong>Meteorología:</strong> Consulta directa a la API de <em>Open-Meteo</em>. No se envían datos personales.</li>
+        <li><strong>Noticias locales y titulares:</strong> Se consultan canales RSS públicos de medios de comunicación valencianos (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). Al abrir un artículo completo, se carga el sitio web original del editor, sujeto a su respectiva política de privacidad.</li>
+        <li><strong>Agenda de eventos:</strong> Datos públicos de ocio y cultura de Valencia servidos mediante GitHub Pages.</li>
+      </ul>
 
-    <h2>7. Modificaciones de esta política</h2>
-    <p>Podemos actualizar esta Política de Privacidad periódicamente para reflejar mejoras en la Aplicación o modificaciones legislativas. Cualquier cambio será publicado en este enlace.</p>
+      <h2>4. Pagos y Compras en la Aplicación (In-App Purchases)</h2>
+      <p>Mi Valencia ofrece una compra opcional de pago único para eliminar la publicidad («Modo Sin Anuncios»). Todas las transacciones son procesadas y gestionadas directamente por:</p>
+      <ul>
+        <li><strong>Apple Inc.</strong> (App Store / StoreKit) en dispositivos iOS.</li>
+        <li><strong>Google LLC</strong> (Google Play Billing) en dispositivos Android.</li>
+      </ul>
+      <p>El desarrollador de Mi Valencia <strong>nunca tiene acceso ni almacena</strong> información financiera, números de tarjeta bancaria ni datos de facturación.</p>
+
+      <h2>5. Publicidad</h2>
+      <p>En su versión gratuita, la Aplicación puede mostrar anuncios gestionados por plataformas publicitarias estándar (como Google AdMob). Estas plataformas pueden utilizar identificadores anónimos de dispositivo (como IDFA o AAID) de conformidad con el consentimiento previo del usuario (marco ATT de Apple y RGPD). Si adquiere el «Modo Sin Anuncios», toda la publicidad y los identificadores de anuncios quedan completamente desactivados.</p>
+
+      <h2>6. Derechos del Usuario (RGPD)</h2>
+      <p>Dado que no almacenamos datos personales identificables en servidores propios, usted puede restablecer toda la información en cualquier momento desinstalando o limpiando la memoria caché de la Aplicación. Si tiene cualquier duda sobre privacidad o desea ejercer sus derechos, puede contactar con nosotros en <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+
+      <h2>7. Cambios en esta política</h2>
+      <p>Cualquier actualización de esta política se publicará en esta misma página web con indicación de la fecha de última modificación.</p>
+    </div>
+
+    <!-- ENGLISH CONTENT -->
+    <div id="content-en" style="display: none;">
+      <h1>Privacy Policy</h1>
+      <div class="updated">Last updated: September 21, 2026</div>
+
+      <p>This Privacy Policy explains how the <strong>Mi Valencia</strong> mobile application ("the App") handles information when you use it. We are committed to protecting your privacy in full compliance with the <strong>General Data Protection Regulation (GDPR - EU 2016/679)</strong> and the Spanish <strong>Organic Law 3/2018 (LOPDGDD)</strong>.</p>
+
+      <div class="contact-box">
+        <strong>Data Controller:</strong> Independent developer of Mi Valencia.<br>
+        <strong>Contact Email:</strong> <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>
+      </div>
+
+      <h2>1. Information We DO NOT Collect</h2>
+      <p>The App is built with strict privacy-by-design principles:</p>
+      <ul>
+        <li><strong>No accounts or registration:</strong> We do not ask for your name, email address, phone number, or passwords. There is no account system and no remote user database.</li>
+        <li><strong>No background location tracking:</strong> We do not continuously monitor, log, or transmit your GPS coordinates to our own servers.</li>
+        <li><strong>No access to sensitive permissions:</strong> We do not request access to your contacts, photo library, camera, or microphone.</li>
+      </ul>
+
+      <h2>2. Data Stored Locally on Your Device</h2>
+      <p>The App stores technical settings and preferences solely within your device's local memory to function properly:</p>
+      <ul>
+        <li>Language preference (Spanish, Valencian, English).</li>
+        <li>Appearance theme preference (Light, Dark, or System default).</li>
+        <li>News feed filter and source toggles.</li>
+        <li>Haptic feedback toggle.</li>
+        <li>"Ad-Free" purchase status to unlock your purchased benefits.</li>
+        <li>Temporary local caching of news, weather forecasts, and event listings for offline reading and data efficiency.</li>
+      </ul>
+      <p>This data never leaves your device and is wiped immediately if you uninstall the App or clear its application storage.</p>
+
+      <h2>3. Third-Party Services and Network Requests</h2>
+      <p>To deliver up-to-date city information, the App communicates with external services that receive standard technical HTTP connection metadata (such as IP address):</p>
+      <ul>
+        <li><strong>Weather data:</strong> Retrieved from the <em>Open-Meteo</em> API. No personal data is transmitted.</li>
+        <li><strong>Local news and headlines:</strong> Aggregated from public RSS feeds of local Valencian publishers (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). When opening an article, you are directed to the publisher's official website, governed by their own privacy policy.</li>
+        <li><strong>Cultural event listings:</strong> Public cultural event data hosted via GitHub Pages.</li>
+      </ul>
+
+      <h2>4. Payments and In-App Purchases</h2>
+      <p>Mi Valencia offers an optional, one-time in-app purchase to remove advertisements ("Ad-Free Mode"). All transactions are processed exclusively by:</p>
+      <ul>
+        <li><strong>Apple Inc.</strong> (App Store / StoreKit) on iOS devices.</li>
+        <li><strong>Google LLC</strong> (Google Play Billing) on Android devices.</li>
+      </ul>
+      <p>The developer of Mi Valencia <strong>never accesses or stores</strong> your credit card numbers, bank details, or billing information.</p>
+
+      <h2>5. Advertising</h2>
+      <p>The free version of the App may display ads delivered by standard advertising networks (such as Google AdMob). These networks may use non-identifying mobile advertising identifiers (e.g. IDFA or AAID) subject to user consent under European GDPR regulations and Apple's App Tracking Transparency (ATT) framework. Purchasing the "Ad-Free Mode" completely disables all advertisements and advertising trackers.</p>
+
+      <h2>6. Your Rights (GDPR)</h2>
+      <p>Because we do not store personal profiles or identifiers on remote servers, your preferences can be cleared at any time directly through your device settings or by uninstalling the App. For any privacy inquiries or to exercise your statutory rights, please contact <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+
+      <h2>7. Changes to this Policy</h2>
+      <p>We may update this Privacy Policy periodically. Any revisions will be published on this page with an updated revision date.</p>
+    </div>
   </div>
+
+  <script>
+    function switchLanguage(lang) {
+      document.getElementById('content-es').style.display = lang === 'es' ? 'block' : 'none';
+      document.getElementById('content-en').style.display = lang === 'en' ? 'block' : 'none';
+      document.getElementById('btn-es').className = 'lang-btn' + (lang === 'es' ? ' active' : '');
+      document.getElementById('btn-en').className = 'lang-btn' + (lang === 'en' ? ' active' : '');
+      document.documentElement.lang = lang;
+    }
+  </script>
 </body>
 </html>
