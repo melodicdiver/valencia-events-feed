@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Términos y Condiciones de Uso · Mi Valencia</title>
+  <title>Términos de Uso / Terms of Service · Mi Valencia</title>
   <style>
     :root {
       --bg: #F8F9FA;
@@ -12,6 +12,7 @@
       --text-muted: #636366;
       --accent: #E85D04;
       --border: #E5E5EA;
+      --btn-inactive-bg: #F2F2F7;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -20,6 +21,7 @@
         --text: #F2F2F7;
         --text-muted: #8E8E93;
         --border: #2C2C2E;
+        --btn-inactive-bg: #2C2C2E;
       }
     }
     body {
@@ -31,7 +33,7 @@
       padding: 32px 16px;
     }
     .container {
-      max-width: 760px;
+      max-width: 780px;
       margin: 0 auto;
       background: var(--card-bg);
       padding: 36px 32px;
@@ -39,48 +41,145 @@
       border: 1px solid var(--border);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
     }
-    h1 { font-size: 26px; margin-top: 0; color: var(--accent); }
-    h2 { font-size: 19px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand-tag {
+      font-weight: 700;
+      color: var(--accent);
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .lang-switcher {
+      display: inline-flex;
+      background: var(--btn-inactive-bg);
+      padding: 3px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+    .lang-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .lang-btn.active {
+      background: var(--accent);
+      color: #FFFFFF;
+      box-shadow: 0 2px 6px rgba(232, 93, 4, 0.3);
+    }
+    h1 { font-size: 26px; margin: 0 0 8px 0; color: var(--text); }
+    h2 { font-size: 19px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 6px; color: var(--text); }
     p, li { font-size: 15px; color: var(--text); }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 6px; }
     .updated { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
-    a { color: var(--accent); text-decoration: none; }
+    a { color: var(--accent); text-decoration: none; font-weight: 500; }
     a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Términos y Condiciones de Uso · Mi Valencia</h1>
-    <div class="updated">Última actualización: 21 de septiembre de 2026</div>
+    <div class="top-bar">
+      <span class="brand-tag">Mi Valencia</span>
+      <div class="lang-switcher">
+        <button class="lang-btn active" id="btn-es" onclick="switchLanguage('es')">Español</button>
+        <button class="lang-btn" id="btn-en" onclick="switchLanguage('en')">English</button>
+      </div>
+    </div>
 
-    <p>Bienvenido/a a <strong>Mi Valencia</strong> (en adelante, «la Aplicación»). Al descargar, instalar o utilizar la Aplicación, usted acepta quedar vinculado/a por los presentes Términos y Condiciones. Si no está de acuerdo con alguno de ellos, le rogamos que desinstale la Aplicación.</p>
+    <!-- SPANISH CONTENT -->
+    <div id="content-es">
+      <h1>Términos y Condiciones de Uso</h1>
+      <div class="updated">Última actualización: 21 de septiembre de 2026</div>
 
-    <h2>1. Objeto del Servicio</h2>
-    <p>Mi Valencia es una herramienta informativa de utilidad local que recopila y muestra información pública relevante para la ciudad de Valencia (España), incluyendo previsiones meteorológicas, agenda cultural, cartelera de eventos y agregación de titulares de prensa local.</p>
+      <p>Bienvenido/a a <strong>Mi Valencia</strong> (en adelante, «la Aplicación»). Al descargar, instalar o utilizar la Aplicación, usted acepta quedar vinculado/a por los presentes Términos y Condiciones. Si no está de acuerdo con alguno de ellos, no utilice ni instale la Aplicación.</p>
 
-    <h2>2. Propiedad Intelectual y Fuentes Informativas</h2>
-    <ul>
-      <li><strong>Titulares y Noticias:</strong> Todos los derechos de autor, marcas, imágenes y textos periodísticos mostrados pertenecen exclusivamente a sus respectivos editores y medios de comunicación (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). Mi Valencia actúa únicamente como agregador informativo mediante canales RSS públicos y redirige al lector a la fuente original.</li>
-      <li><strong>Datos Meteorológicos y Culturales:</strong> Obtenidos de proveedores de datos abiertos y entidades públicas (Open-Meteo, Ajuntament de València).</li>
-      <li><strong>Software:</strong> El diseño, código fuente, logotipos y gráficos propios de la Aplicación son propiedad del desarrollador.</li>
-    </ul>
+      <h2>1. Objeto y Descripción del Servicio</h2>
+      <p>Mi Valencia es una aplicación de utilidad informativa que recopila y muestra información de interés para la ciudad de Valencia (España), incluyendo el estado del tiempo meteorológico, agenda cultural y de ocio, y agregación de titulares de prensa de medios locales independientes.</p>
 
-    <h2>3. Compras dentro de la Aplicación (Modo Sin Anuncios)</h2>
-    <p>La Aplicación puede ofrecer una compra de pago único denominada «Modo Sin Anuncios» / «Mi Valencia Premium»:</p>
-    <ul>
-      <li>La compra otorga una licencia no exclusiva, personal y permanente para utilizar la Aplicación sin anuncios comerciales en los dispositivos vinculados a su cuenta de Apple o Google.</li>
-      <li>Los pagos y cancelaciones se gestionan exclusivamente conforme a las condiciones de <strong>Apple Media Services</strong> o <strong>Google Play</strong>.</li>
-      <li>Puede restaurar su compra en cualquier momento a través del botón «Restaurar compras» en la pantalla de Ajustes.</li>
-    </ul>
+      <h2>2. Propiedad Intelectual y Fuentes de Información</h2>
+      <ul>
+        <li><strong>Noticias y Artículos:</strong> Todos los titulares, resúmenes, nombres de medios, fotografías y logotipos de prensa mostrados pertenecen en exclusiva a sus respectivos titulares editoriales (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). La Aplicación actúa únicamente como agregador informativo mediante canales RSS públicos y redirige al usuario a la web original de cada medio.</li>
+        <li><strong>Información Meteorológica y Cultural:</strong> Procedente de servicios públicos y fuentes de datos abiertos (Open-Meteo, repositorios culturales de Valencia).</li>
+        <li><strong>Software y Diseño:</strong> El código, interfaz, logotipos propios y elementos de diseño de Mi Valencia son propiedad del desarrollador.</li>
+      </ul>
 
-    <h2>4. Exclusión de Garantías y Limitación de Responsabilidad</h2>
-    <p>La información meteorológica, de tráfico, cartelera o noticias se facilita «tal cual» con fines meramente orientativos e informativos. El desarrollador no garantiza la infalibilidad, puntualidad ni exactitud de datos de terceros ajenos a su control (por ejemplo, cancelaciones de última hora en eventos de ocio o imprecisiones en previsiones meteorológicas).</p>
-    <p>En ningún caso el desarrollador responderá por pérdidas directas o indirectas derivadas del uso o imposibilidad de uso de la Aplicación.</p>
+      <h2>3. Compras dentro de la Aplicación («Modo Sin Anuncios»)</h2>
+      <ul>
+        <li>La compra «Modo Sin Anuncios» es una adquisición de pago único que elimina la publicidad de forma permanente en los dispositivos asociados a su cuenta de Apple o Google.</li>
+        <li>Todas las operaciones de facturación, pago y reembolsos son tramitadas directamente por <strong>Apple App Store</strong> o <strong>Google Play Store</strong> con arreglo a sus respectivas condiciones comerciales.</li>
+        <li>Puede restaurar su compra en cualquier momento a través del botón «Restaurar compras» disponible en el menú de Ajustes de la Aplicación.</li>
+      </ul>
 
-    <h2>5. Legislación Aplicable y Jurisdicción</h2>
-    <p>Los presentes Términos se rigen por la legislación vigente de España y de la Unión Europea. Para cualquier controversia, las partes se someterán a los juzgados y tribunales de la ciudad de Valencia (España), con renuncia a cualquier otro fuero que pudiera corresponderles, sin perjuicio de las disposiciones obligatorias de protección a consumidores y usuarios.</p>
+      <h2>4. Limitación de Responsabilidad</h2>
+      <p>La información facilitada en la Aplicación se proporciona «tal cual» con fines meramente orientativos e informativos. El desarrollador realiza los mejores esfuerzos para asegurar su continuidad, pero no garantiza la infalibilidad, exactitud ni puntualidad de datos suministrados por fuentes terceras (como cancelaciones imprevistas de eventos o cambios en el pronóstico meteorológico).</p>
+      <p>En ningún caso el desarrollador será responsable por daños directos, indirectos o fortuitos derivados del uso de la Aplicación.</p>
 
-    <h2>6. Contacto</h2>
-    <p>Para dudas, sugerencias o asistencia técnica relativa a la Aplicación, puede escribir a: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+      <h2>5. Legislación Aplicable y Jurisdicción</h2>
+      <p>Los presentes Términos se rigen por la legislación española y la normativa comunitaria europea. En la medida en que la ley lo permita, cualquier controversia se someterá a los juzgados y tribunales de la ciudad de Valencia (España), sin perjuicio de los derechos irrenunciables que asistan al usuario en su condición de consumidor.</p>
+
+      <h2>6. Contacto y Asistencia</h2>
+      <p>Para consultas, sugerencias o soporte técnico, puede ponerse en contacto a través de: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+    </div>
+
+    <!-- ENGLISH CONTENT -->
+    <div id="content-en" style="display: none;">
+      <h1>Terms of Service</h1>
+      <div class="updated">Last updated: September 21, 2026</div>
+
+      <p>Welcome to <strong>Mi Valencia</strong> ("the App"). By downloading, installing, or using the App, you agree to be bound by these Terms of Service. If you do not agree with any part of these terms, please do not install or use the App.</p>
+
+      <h2>1. Purpose of the Service</h2>
+      <p>Mi Valencia is an informational utility designed to display useful, real-time public data for the city of Valencia (Spain), including weather forecasts, cultural event agendas, and aggregated news headlines from local publishers.</p>
+
+      <h2>2. Intellectual Property and Content Sources</h2>
+      <ul>
+        <li><strong>News Articles and Media:</strong> All trademarks, publication logos, article snippets, and headlines belong solely to their respective publishers (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). The App acts purely as a news aggregator using publicly available RSS feeds and directs users to the original publisher's website.</li>
+        <li><strong>Weather and Event Data:</strong> Obtained from third-party open APIs and public cultural data sources (Open-Meteo, Valencia cultural feeds).</li>
+        <li><strong>App Software:</strong> The design, layout, custom branding, and source code of Mi Valencia are the property of the developer.</li>
+      </ul>
+
+      <h2>3. In-App Purchases ("Ad-Free Mode")</h2>
+      <ul>
+        <li>The "Ad-Free Mode" is an optional, one-time non-consumable purchase that permanently removes commercial advertisements across all devices linked to your Apple or Google account.</li>
+        <li>All payments, billing, and refunds are handled exclusively by the <strong>Apple App Store</strong> or <strong>Google Play Store</strong> in accordance with their respective terms of service.</li>
+        <li>You can restore your purchase at any time using the "Restore purchases" button located in the App Settings.</li>
+      </ul>
+
+      <h2>4. Disclaimer and Limitation of Liability</h2>
+      <p>All information provided in the App is provided on an "as is" and "as available" basis for general informational purposes only. The developer makes no guarantees regarding the accuracy, completeness, or timeliness of third-party feeds (such as last-minute concert cancellations or weather forecast discrepancies).</p>
+      <p>To the maximum extent permitted by applicable law, the developer shall not be liable for any direct, indirect, incidental, or consequential damages resulting from the use or inability to use the App.</p>
+
+      <h2>5. Governing Law and Jurisdiction</h2>
+      <p>These Terms shall be governed by and construed in accordance with the laws of Spain and the European Union. Any disputes arising in connection with these Terms shall be subject to the jurisdiction of the courts of Valencia (Spain), without prejudice to mandatory statutory consumer rights.</p>
+
+      <h2>6. Contact and Support</h2>
+      <p>If you have any questions, feedback, or support requests, please contact us at: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+    </div>
   </div>
+
+  <script>
+    function switchLanguage(lang) {
+      document.getElementById('content-es').style.display = lang === 'es' ? 'block' : 'none';
+      document.getElementById('content-en').style.display = lang === 'en' ? 'block' : 'none';
+      document.getElementById('btn-es').className = 'lang-btn' + (lang === 'es' ? ' active' : '');
+      document.getElementById('btn-en').className = 'lang-btn' + (lang === 'en' ? ' active' : '');
+      document.documentElement.lang = lang;
+    }
+  </script>
 </body>
 </html>
