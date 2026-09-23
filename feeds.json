@@ -1,6 +1,20 @@
 {
-  "version": 1,
-  "updatedAt": "2026-09-17T12:00:00Z",
+  "version": 2,
+  "updatedAt": "2026-09-23T12:00:00Z",
+  "weather": {
+    "primary": {
+      "provider": "open-meteo",
+      "forecastBaseUrl": "https://api.open-meteo.com/v1/forecast",
+      "airQualityBaseUrl": "https://air-quality-api.open-meteo.com/v1/air-quality"
+    },
+    "fallbacks": [
+      {
+        "provider": "met-norway",
+        "forecastBaseUrl": "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+      }
+    ],
+    "refreshIntervalMinutes": 15
+  },
   "corsProxies": [
     "https://api.allorigins.win/raw?url=",
     "https://corsproxy.io/?url="
