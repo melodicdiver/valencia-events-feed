@@ -2,8 +2,7 @@ name: Sync Valencia Events Feed
 
 on:
   schedule:
-    # 03:18 UTC = ~05:18 CEST (summer). Off-peak minute to prevent queue delays.
-    - cron: '18 3 * * *'
+    - cron: '18 1 * * *'
   workflow_dispatch:
 
 permissions:
