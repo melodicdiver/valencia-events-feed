@@ -2,7 +2,7 @@ name: Sync Valencia Events Feed
 
 on:
   schedule:
-    - cron: '18 1 * * *'
+    - cron: '18 23 * * *'
   workflow_dispatch:
 
 permissions:
