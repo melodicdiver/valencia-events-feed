@@ -14,7 +14,7 @@ const KNOWN_VENUES = [
   { pattern: /reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
   { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
   { pattern: /caixaforum/i, name: 'CaixaForum València', address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València' },
-  { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
+  { pattern: /la нау/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
   { pattern: /muvim/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
   { pattern: /bot[aà]nic/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
   { pattern: /drassanes/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
@@ -323,9 +323,9 @@ function isValidDetailImg(url) {
   return true;
 }
 
-// 1. Music (Songkick)
+// 1. Music (Songkick - Spanish Version)
 async function scrapeSongkick(page, context) {
-  console.log('Scraping Songkick (Música)...');
+  console.log('Scraping Songkick (Música en español)...');
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
   cutoffDate.setUTCHours(23, 59, 59, 999);
@@ -338,13 +338,13 @@ async function scrapeSongkick(page, context) {
   for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
     const targetUrl =
       pageNum === 1
-        ? 'https://www.songkick.com/metro-areas/28802-spain-valencia'
-        : 'https://www.songkick.com/metro-areas/28802-spain-valencia?page=' + pageNum;
+        ? 'https://www.songkick.com/es/metro-areas/28802-spain-valencia'
+        : `https://www.songkick.com/es/metro-areas/28802-spain-valencia?page=${pageNum}`;
 
     try {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     } catch (err) {
-      console.warn(`Songkick timeout: ${err.message}`);
+      console.warn(`Songkick timeout on page ${pageNum}: ${err.message}`);
       break;
     }
 
@@ -431,7 +431,7 @@ async function scrapeSongkick(page, context) {
               isFree: offer?.price === 0 || offer?.price === '0',
               ticketPrice: price,
               ticketUrl: offer?.url || item.url,
-              url: item.url || 'https://www.songkick.com',
+              url: item.url || 'https://www.songkick.com/es',
             });
           }
         }
@@ -441,7 +441,7 @@ async function scrapeSongkick(page, context) {
     if (maxDateOnPage > cutoffDate.getTime()) break;
   }
 
-  console.log(`Parsed ${events.length} total Songkick concerts.`);
+  console.log(`Parsed ${events.length} total Songkick concerts (ES).`);
   return events;
 }
 
@@ -1064,6 +1064,9 @@ async function main() {
   const context = await browser.newContext({
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    extraHTTPHeaders: {
+      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+    },
   });
 
   let musicEvents = [];
