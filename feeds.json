@@ -4,7 +4,7 @@
     "disabledOutlets": [
     "valenciaextra",
     "superdeporte"
-  ]
+  ],
   "weather": {
     "primary": {
       "provider": "open-meteo",
