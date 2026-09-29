@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "updatedAt": "2026-09-23T12:00:00Z",
+  "version": 3,
+  "updatedAt": "2026-09-29T12:00:00Z",
   "weather": {
     "primary": {
       "provider": "open-meteo",
@@ -17,7 +17,7 @@
   },
   "corsProxies": [
     "https://api.allorigins.win/raw?url=",
-    "https://corsproxy.io/?url="
+    "https://api.codetabs.com/v1/proxy?quest="
   ],
   "feeds": [
     {
@@ -59,11 +59,22 @@
       "sourceName": "À Punt",
       "category": "local",
       "defaultCategory": "local",
-      "url": "https://www.apuntmedia.es/rss/actualitat",
-      "fallbackUrl": "https://www.apuntmedia.es/rss/",
+      "url": "https://www.apuntmedia.es/rss/",
+      "fallbackUrl": "https://www.apuntmedia.es/rss/actualitat",
       "domain": "apuntmedia.es",
       "color": "#FF5A00",
       "sourceLogoUrl": "https://www.google.com/s2/favicons?domain=apuntmedia.es&sz=128"
+    },
+    {
+      "id": "valenciaextra",
+      "name": "València Extra",
+      "sourceName": "València Extra",
+      "category": "Comunitat",
+      "defaultCategory": "local",
+      "url": "https://www.valenciaextra.com/uploads/feeds/feed_valencia-extra_es.xml",
+      "domain": "valenciaextra.com",
+      "color": "#E66012",
+      "sourceLogoUrl": "https://www.valenciaextra.com/uploads/static/valencia-extra/logos/logo-squared-200x200.png"
     },
     {
       "id": "superdeporte-deportes",
