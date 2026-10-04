@@ -112,7 +112,7 @@
     <!-- SPANISH CONTENT -->
     <div id="content-es">
       <h1>Política de Privacidad</h1>
-      <div class="updated">Última actualización: 29 de septiembre de 2026</div>
+      <div class="updated">Última actualización: 4 de octubre de 2026</div>
 
       <p>Esta Política de Privacidad describe cómo la aplicación móvil <strong>Mi Valencia</strong> (en adelante, «la Aplicación») trata la información cuando usted la utiliza. Nos comprometemos a respetar su privacidad conforme al <strong>Reglamento General de Protección de Datos (RGPD / GDPR - UE 2016/679)</strong> y la <strong>Ley Orgánica 3/2018 (LOPDGDD)</strong> de España.</p>
 
@@ -125,7 +125,7 @@
       <p>La Aplicación ha sido diseñada bajo el principio de minimización estricta de datos:</p>
       <ul>
         <li><strong>Sin cuentas ni registros obligatorios:</strong> No solicitamos nombre, correo, teléfono ni contraseñas. No existe sistema de inicio de sesión ni base de datos de perfiles de usuario.</li>
-        <li><strong>Sin seguimiento de geolocalización continuo:</strong> No rastreamos ni almacenamos su posición GPS en segundo plano ni transmitimos coordenadas a servidores propios.</li>
+        <li><strong>Sin seguimiento de geolocalización continuo:</strong> No rastreamos ni almacenamos su posición GPS en segundo plano ni transmitimos coordenadas personales a servidores propios. Las consultas meteorológicas se realizan mediante coordenadas de ciudades predefinidas seleccionadas por el usuario.</li>
         <li><strong>Sin acceso a datos sensibles:</strong> No solicitamos acceso a su agenda de contactos, galería de fotos, cámara ni micrófono.</li>
       </ul>
 
@@ -134,6 +134,7 @@
       <ul>
         <li>Preferencia de idioma (Español, Valenciano, Inglés).</li>
         <li>Preferencia de tema visual (Claro, Oscuro o Automático del sistema).</li>
+        <li>Municipio seleccionado para la previsión meteorológica (Valencia, Sagunto, Gandía, Cullera o Alzira).</li>
         <li>Filtro y selección de fuentes de noticias activas.</li>
         <li>Escala de tamaño de texto y ajuste de vibración háptica.</li>
         <li>Estado de compra «Sin Anuncios» para desbloquear las funciones adquiridas.</li>
@@ -144,7 +145,7 @@
       <h2>3. Servicios de terceros y conexiones de red</h2>
       <p>Para ofrecer la información de Valencia en tiempo real y financiar el mantenimiento de la versión gratuita, la Aplicación consulta servicios externos que pueden recibir datos técnicos de conexión (como la dirección IP y cabeceras HTTP estándar):</p>
       <ul>
-        <li><strong>Meteorología:</strong> Consulta directa a la API de <em>Open-Meteo</em>. No se envían datos personales.</li>
+        <li><strong>Meteorología:</strong> Consulta de previsiones numéricas a <em>Open-Meteo</em> y datos de observación en directo a estaciones meteorológicas automatizadas (reportes METAR/Aviation Weather / MET Norway). No se envían datos personales.</li>
         <li><strong>Noticias locales y titulares:</strong> Se consultan canales RSS públicos de medios de comunicación valencianos (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). Al abrir un artículo completo, se carga el sitio web original del editor, sujeto a su respectiva política de privacidad.</li>
         <li><strong>Agenda de eventos:</strong> Datos públicos de ocio y cultura de Valencia servidos mediante GitHub Pages.</li>
         <li><strong>Publicidad Móvil:</strong> Red publicitaria <em>Google AdMob (Google LLC)</em> para la entrega de anuncios en la versión gratuita.</li>
@@ -153,7 +154,7 @@
       <h2>4. Métricas de Uso y Análisis (Google Analytics)</h2>
       <p>Con el fin de comprender el rendimiento de la Aplicación, mejorar la experiencia de usuario y solucionar problemas de estabilidad, utilizamos <strong>Google Analytics (Google LLC)</strong> para recopilar estadísticas agregadas y seudonimizadas.</p>
       <ul>
-        <li><strong>Información recopilada:</strong> Pantallas visitadas, interacción con funciones (apertura de artículos, selección de categorías, activación o desactivación de fuentes de noticias, consultas meteorológicas), modelo de dispositivo, versión del sistema operativo y métricas técnicas de rendimiento.</li>
+        <li><strong>Información recopilada:</strong> Pantallas visitadas, interacción con funciones (apertura de artículos, selección de categorías, activación o desactivación de fuentes de noticias, consultas meteorológicas por municipio), modelo de dispositivo, versión del sistema operativo y métricas técnicas de rendimiento.</li>
         <li><strong>Sin datos identificativos personales (PII):</strong> Los datos se asocian a un identificador aleatorio de instalación (Client ID). No se asocian a nombres, correos ni datos de contacto. La dirección IP se anonimiza automáticamente en los servidores de Google.</li>
         <li>Para conocer más detalles sobre el tratamiento de datos por parte de Google, consulte la <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Política de Privacidad de Google</a>.</li>
       </ul>
@@ -193,7 +194,7 @@
     <!-- ENGLISH CONTENT -->
     <div id="content-en" style="display: none;">
       <h1>Privacy Policy</h1>
-      <div class="updated">Last updated: September 29, 2026</div>
+      <div class="updated">Last updated: October 4, 2026</div>
 
       <p>This Privacy Policy explains how the <strong>Mi Valencia</strong> mobile application ("the App") handles information when you use it. We are committed to protecting your privacy in full compliance with the <strong>General Data Protection Regulation (GDPR - EU 2016/679)</strong> and the Spanish <strong>Organic Law 3/2018 (LOPDGDD)</strong>.</p>
 
@@ -206,7 +207,7 @@
       <p>The App is built with strict privacy-by-design principles:</p>
       <ul>
         <li><strong>No accounts or registration:</strong> We do not ask for your name, email address, phone number, or passwords. There is no account system and no remote user database.</li>
-        <li><strong>No background location tracking:</strong> We do not continuously monitor, log, or transmit your GPS coordinates to our own servers.</li>
+        <li><strong>No background location tracking:</strong> We do not continuously monitor, log, or transmit your personal GPS coordinates to our own servers. Weather queries use fixed geographic coordinates for user-selected towns.</li>
         <li><strong>No access to sensitive permissions:</strong> We do not request access to your contacts, photo library, camera, or microphone.</li>
       </ul>
 
@@ -215,6 +216,7 @@
       <ul>
         <li>Language preference (Spanish, Valencian, English).</li>
         <li>Appearance theme preference (Light, Dark, or System default).</li>
+        <li>Selected municipality for weather forecasts (Valencia, Sagunto, Gandía, Cullera, or Alzira).</li>
         <li>News feed filter and source toggles.</li>
         <li>Text scale and haptic feedback toggle.</li>
         <li>"Ad-Free" purchase status to unlock your purchased benefits.</li>
@@ -225,7 +227,7 @@
       <h2>3. Third-Party Services and Network Requests</h2>
       <p>To deliver up-to-date city information and support free access, the App communicates with external services that receive standard technical HTTP connection metadata (such as IP address):</p>
       <ul>
-        <li><strong>Weather data:</strong> Retrieved from the <em>Open-Meteo</em> API. No personal data is transmitted.</li>
+        <li><strong>Weather data:</strong> Numerical forecasts from <em>Open-Meteo</em> and ground observations from automated meteorological stations (METAR/Aviation Weather / MET Norway). No personal data is transmitted.</li>
         <li><strong>Local news and headlines:</strong> Aggregated from public RSS feeds of local Valencian publishers (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). When opening an article, you are directed to the publisher's official website, governed by their own privacy policy.</li>
         <li><strong>Cultural event listings:</strong> Public cultural event data hosted via GitHub Pages.</li>
         <li><strong>Mobile Advertising:</strong> <em>Google AdMob (Google LLC)</em> for serving advertisements in the free version.</li>
@@ -234,7 +236,7 @@
       <h2>4. Usage Analytics (Google Analytics)</h2>
       <p>To understand App usage trends, optimize features, and resolve stability issues, we use <strong>Google Analytics (Google LLC)</strong> to collect pseudonymous, aggregated statistics.</p>
       <ul>
-        <li><strong>Collected Information:</strong> Screens viewed, feature interactions (reading articles, category filter selections, news source toggles, weather checks), device hardware model, operating system version, and general technical performance metrics.</li>
+        <li><strong>Collected Information:</strong> Screens viewed, feature interactions (reading articles, category filter selections, news source toggles, weather checks by town), device hardware model, operating system version, and general technical performance metrics.</li>
         <li><strong>No Personally Identifiable Information (PII):</strong> Events are linked only to a random installation Client ID. We never collect or correlate your name, phone number, or email with analytics data. IP addresses are automatically masked by Google.</li>
         <li>To review Google's privacy practices, visit <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google's Privacy Policy</a>.</li>
       </ul>
