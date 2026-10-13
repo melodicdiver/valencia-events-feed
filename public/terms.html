@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Términos de Uso / Terms of Service · Mi Valencia</title>
+  <title>Términos de Uso / Terms of Service · Micalet</title>
   <style>
     :root {
       --bg: #F8F9FA;
@@ -87,6 +87,14 @@
     ul { padding-left: 20px; }
     li { margin-bottom: 8px; }
     .updated { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+    .note-box {
+      background: rgba(232, 93, 4, 0.08);
+      border-left: 4px solid var(--accent);
+      padding: 14px 18px;
+      border-radius: 6px;
+      margin: 20px 0;
+      font-size: 14px;
+    }
     a { color: var(--accent); text-decoration: none; font-weight: 500; }
     a:hover { text-decoration: underline; }
   </style>
@@ -94,7 +102,7 @@
 <body>
   <div class="container">
     <div class="top-bar">
-      <span class="brand-tag">Mi Valencia</span>
+      <span class="brand-tag">Micalet</span>
       <div class="lang-switcher">
         <button class="lang-btn active" id="btn-es" onclick="switchLanguage('es')">Español</button>
         <button class="lang-btn" id="btn-en" onclick="switchLanguage('en')">English</button>
@@ -104,91 +112,109 @@
     <!-- SPANISH CONTENT -->
     <div id="content-es">
       <h1>Términos y Condiciones de Uso</h1>
-      <div class="updated">Última actualización: 4 de octubre de 2026</div>
+      <div class="updated">Última actualización: 13 de octubre de 2026</div>
 
-      <p>Bienvenido/a a <strong>Mi Valencia</strong> (en adelante, «la Aplicación»). Al descargar, instalar o utilizar la Aplicación, usted acepta quedar vinculado/a por los presentes Términos y Condiciones. Si no está de acuerdo con alguno de ellos, no utilice ni instale la Aplicación.</p>
+      <p>Bienvenido/a a <strong>Micalet</strong> (nombre comercial de la aplicación móvil distribuida bajo el identificador de paquete <code>com.mivalencia.app</code>, en adelante «la Aplicación»). Al descargar, instalar, actualizar o utilizar la Aplicación en dispositivos móviles iOS o Android, usted acepta quedar plenamente vinculado/a por los presentes Términos y Condiciones de Uso. Si no está de acuerdo con alguno de ellos, le rogamos que no instale ni continúe utilizando la Aplicación.</p>
+
+      <div class="note-box">
+        <strong>Identidad y denominación:</strong> La Aplicación opera y se distribuye públicamente bajo la marca <strong>Micalet</strong> (anteriormente referenciada como «Mi Valencia» en fases de desarrollo preliminar y su identificador técnico de paquete de aplicación).
+      </div>
 
       <h2>1. Objeto y Descripción del Servicio</h2>
-      <p>Mi Valencia es una aplicación de utilidad informativa que recopila y muestra información de interés público para la ciudad y la provincia de Valencia (España), abarcando la capital y municipios residenciales clave (Sagunto, Gandía, Cullera y Alzira). Incluye el estado del tiempo meteorológico en tiempo real, agenda cultural y de ocio, y agregación de titulares de prensa de medios locales independientes.</p>
+      <p>Micalet es una aplicación de utilidad e información ciudadana en tiempo real diseñada para los residentes y visitantes de la ciudad y provincia de Valencia (España). Su servicio comprende:</p>
+      <ul>
+        <li><strong>Pronósticos e información meteorológica en tiempo real:</strong> Condiciones atmosféricas, temperatura observada y sensación térmica, índice UV, humedad, viento, fases solares y previsiones horarias y a 10 días para Valencia capital y municipios destacados de su entorno (Sagunto, Gandía, Cullera y Alzira).</li>
+        <li><strong>Agenda cultural, festiva y de ocio:</strong> Consulta de eventos públicos, exposiciones, conciertos, festivales y citas culturales en Valencia organizados por categorías.</li>
+        <li><strong>Agregación informativa y actualidad local:</strong> Recopilación y visualización estructurada de titulares, extractos y enlaces a noticias de medios de comunicación y cabeceras periodísticas de ámbito valenciano.</li>
+      </ul>
 
       <h2>2. Propiedad Intelectual, Fuentes de Datos y Atribuciones</h2>
       <ul>
-        <li><strong>Información Meteorológica y Observación en Vivo:</strong>
+        <li><strong>Información Meteorológica:</strong> 
           <ul>
-            <li>Los modelos de previsión horaria y extendida provienen de <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> bajo licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" target="_blank" rel="noopener noreferrer">Creative Commons Attribution 4.0 International (CC BY 4.0)</a>.</li>
-            <li>Las observaciones físicas en directo del estado actual se cotejan con estaciones meteorológicas automatizadas (reportes METAR/SPECI) suministradas por servicios públicos y el <a href="https://aviationweather.gov/" target="_blank" rel="noopener noreferrer">Aviation Weather Center (NOAA)</a>.</li>
-            <li>Como mecanismo de redundancia y respaldo, la Aplicación puede consultar servicios meteorológicos abiertos como <a href="https://api.met.no/" target="_blank" rel="noopener noreferrer">MET Norway (Instituto Meteorológico de Noruega)</a>.</li>
+            <li>Las previsiones numéricas, series horarias y datos de calidad del aire provienen de <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> y se facilitan conforme a la licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" target="_blank" rel="noopener noreferrer">Creative Commons Attribution 4.0 International (CC BY 4.0)</a>.</li>
+            <li>Las observaciones físicas en superficie y condiciones en tiempo real se contrastan y verifican con informes de estaciones meteorológicas oficiales del sistema aeronáutico internacional (<a href="https://aviationweather.gov/" target="_blank" rel="noopener noreferrer">NOAA / Aviation Weather Center METAR</a>), datos de dominio público libres de derechos patrimoniales.</li>
+            <li>Como mecanismo de contingencia y resiliencia ante cortes o degradaciones de red, la Aplicación puede consultar servicios del <a href="https://api.met.no/" target="_blank" rel="noopener noreferrer">Instituto Meteorológico Noruego (MET Norway / Yr)</a>, conforme a la Licencia Noruega para Datos Públicos (NLOD) y Creative Commons.</li>
           </ul>
         </li>
         <li><strong>Agenda y Eventos Municipales:</strong> La información sobre actividades públicas, agenda cultural y eventos locales procede del portal de Datos Abiertos del <a href="https://valencia.es" target="_blank" rel="noopener noreferrer">Ajuntament de València</a>, reutilizada de conformidad con la Ley 37/2007, de 16 de noviembre, sobre reutilización de la información del sector público y las condiciones del catálogo municipal de datos abiertos.</li>
-        <li><strong>Noticias y Artículos de Prensa:</strong> Todos los titulares, resúmenes, nombres de medios, fotografías y logotipos de prensa mostrados pertenecen en exclusiva a sus respectivos titulares editoriales (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). La Aplicación actúa únicamente como agregador informativo mediante canales RSS públicos y redirige al usuario a la web original de cada medio.</li>
-        <li><strong>Software y Diseño:</strong> El código fuente, interfaz gráfica, diseño visual, logotipos distintivos y marca Mi Valencia son propiedad exclusiva del desarrollador.</li>
+        <li><strong>Noticias y Artículos de Prensa:</strong> Todos los titulares, resúmenes, nombres de medios, marcas registradas, fotografías y logotipos mostrados pertenecen en exclusiva a sus respectivos titulares editoriales (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte, entre otros). La Aplicación actúa estrictamente como agregador informativo mediante canales RSS públicos y redirige al usuario a la web original o navegador integrado para acceder al artículo completo del medio.</li>
+        <li><strong>Software y Diseño:</strong> El código fuente, interfaz gráfica, diseño visual, animaciones, logotipos distintivos y la marca <strong>Micalet</strong> son propiedad exclusiva del desarrollador independiente de la Aplicación.</li>
       </ul>
 
-      <h2>3. Compras dentro de la Aplicación («Modo Sin Anuncios»)</h2>
+      <h2>3. Compras dentro de la Aplicación («Modo Sin Anuncios / Micalet Premium»)</h2>
       <ul>
-        <li>La compra «Modo Sin Anuncios» otorga una licencia de uso no consumible y perpetua que elimina de forma definitiva toda la publicidad comercial de la Aplicación en los dispositivos compatibles vinculados a su cuenta de Apple o Google.</li>
-        <li>Todas las operaciones de facturación, pago y reembolsos son tramitadas directamente por <strong>Apple Inc. (App Store)</strong> o <strong>Google LLC (Google Play Store)</strong> con arreglo a sus respectivas condiciones comerciales.</li>
-        <li>Puede restaurar su compra en cualquier momento sin coste adicional a través del botón «Restaurar compras» disponible en el menú de Ajustes de la Aplicación.</li>
+        <li>La compra «Modo Sin Anuncios» (o «Micalet Premium») es una compra integrada única (no consumible y sin suscripciones recurrentes) que otorga una licencia de uso perpetua para eliminar de forma definitiva la publicidad comercial de la Aplicación en los dispositivos compatibles vinculados a su cuenta de Apple o Google.</li>
+        <li>Todas las operaciones de facturación, procesamiento de cobro y eventuales solicitudes de reembolso son tramitadas directamente por <strong>Apple Inc. (App Store)</strong> o <strong>Google LLC (Google Play Store)</strong> con arreglo a sus respectivos términos y condiciones comerciales.</li>
+        <li>Puede restaurar su compra en cualquier momento y sin coste adicional a través del botón «Restaurar compras» disponible en el menú de Ajustes de la Aplicación.</li>
       </ul>
 
       <h2>4. Publicidad de Terceros y Enlaces Externos</h2>
-      <p>La versión gratuita de la Aplicación puede incluir espacios publicitarios servidos por redes publicitarias de terceros (como Google AdMob). Los anuncios pueden incluir enlaces a sitios web, aplicaciones o promociones de terceros. El desarrollador de Mi Valencia no controla, avala ni asume responsabilidad alguna sobre los productos, servicios, precios, disponibilidad o contenidos ofrecidos por dichos anunciantes. Cualquier contratación, interacción o compraventa efectuada a través de dichos enlaces se realiza exclusivamente entre usted y el anunciante tercero.</p>
+      <p>La versión gratuita de la Aplicación incluye espacios publicitarios servidos por redes publicitarias de terceros (como Google AdMob). Dichos anuncios pueden contener enlaces a sitios web, aplicaciones o promociones de terceros. El desarrollador de Micalet no controla, patrocina ni asume responsabilidad alguna sobre los productos, servicios, precios, disponibilidad, veracidad o políticas de privacidad de dichos anunciantes. Cualquier contratación, interacción o compraventa efectuada a través de dichos enlaces se realiza exclusivamente entre usted y el anunciante tercero.</p>
 
-      <h2>5. Limitación de Responsabilidad</h2>
-      <p>La información facilitada en la Aplicación se proporciona «tal cual» con fines meramente orientativos e informativos. El desarrollador realiza los mejores esfuerzos para asegurar su continuidad, pero no garantiza la infalibilidad, exactitud ni puntualidad de datos suministrados por fuentes terceras (como cancelaciones imprevistas de eventos o variaciones meteorológicas repentinas).</p>
-      <p>En ningún caso el desarrollador será responsable por daños directos, indirectos o fortuitos derivados del uso de la Aplicación.</p>
+      <h2>5. Exclusión de Garantías y Limitación de Responsabilidad</h2>
+      <p>La información facilitada en Micalet se proporciona «tal cual» (as is) y según disponibilidad con fines meramente orientativos e informativos. Aunque se emplean los mejores esfuerzos técnicos para garantizar la continuidad y fiabilidad del servicio, el desarrollador no garantiza la infalibilidad, exactitud absoluta ni puntualidad de datos suministrados por fuentes terceras (como cancelaciones imprevistas de eventos municipales, variaciones meteorológicas repentinas o indisponibilidad temporal de feeds de noticias).</p>
+      <p>En la máxima medida permitida por la normativa vigente, el desarrollador no será responsable por daños directos, indirectos, especiales o fortuitos derivados del uso o de la imposibilidad de uso de la Aplicación.</p>
 
       <h2>6. Legislación Aplicable y Jurisdicción</h2>
-      <p>Los presentes Términos se rigen por la legislación española y la normativa comunitaria europea. En la medida en que la ley lo permita, cualquier controversia se someterá a los juzgados y tribunales de la ciudad de Valencia (España), sin perjuicio de los derechos irrenunciables que asistan al usuario en su condición de consumidor.</p>
+      <p>Los presentes Términos se rigen por la legislación española y la normativa comunitaria europea aplicable. En la medida en que la ley lo permita, cualquier controversia se someterá a la jurisdicción de los juzgados y tribunales de la ciudad de Valencia (España), sin perjuicio de los fueros y derechos irrenunciables que asistan al usuario en su condición legal de consumidor.</p>
 
       <h2>7. Contacto y Asistencia</h2>
-      <p>Para consultas, sugerencias o soporte técnico, puede ponerse en contacto a través de: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+      <p>Para cualquier consulta relativa a estos Términos, sugerencias o soporte técnico, puede ponerse en contacto a través de la dirección: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
     </div>
 
     <!-- ENGLISH CONTENT -->
     <div id="content-en" style="display: none;">
       <h1>Terms of Service</h1>
-      <div class="updated">Last updated: October 4, 2026</div>
+      <div class="updated">Last updated: October 13, 2026</div>
 
-      <p>Welcome to <strong>Mi Valencia</strong> ("the App"). By downloading, installing, or using the App, you agree to be bound by these Terms of Service. If you do not agree with any part of these terms, please do not install or use the App.</p>
+      <p>Welcome to <strong>Micalet</strong> (mobile application distributed under the package identifier <code>com.mivalencia.app</code>, hereinafter referred to as "the App"). By downloading, installing, updating, or using the App on iOS or Android devices, you agree to be bound by these Terms of Service. If you do not agree with any part of these terms, please do not install or use the App.</p>
+
+      <div class="note-box">
+        <strong>App Identity & Naming:</strong> The App is published and branded under the name <strong>Micalet</strong> (previously referenced as "Mi Valencia" during preliminary development and in its technical application package identifier).
+      </div>
 
       <h2>1. Purpose of the Service</h2>
-      <p>Mi Valencia is an informational utility designed to display useful public data for the city and province of Valencia (Spain), including the capital and key residential commuter hubs (Sagunto, Gandía, Cullera, and Alzira). It provides real-time weather observations, cultural event agendas, and aggregated news headlines from independent local publishers.</p>
+      <p>Micalet is an informational and civic utility designed to provide real-time public data for residents and visitors of the city and province of Valencia (Spain). The service includes:</p>
+      <ul>
+        <li><strong>Real-time weather observations and forecasts:</strong> Current temperature, feels-like temperature, UV index, humidity, wind conditions, solar progression phases, and hourly & 10-day forecasts for Valencia and key regional municipalities (Sagunto, Gandía, Cullera, and Alzira).</li>
+        <li><strong>Cultural and leisure event agendas:</strong> Public events, concerts, exhibitions, and municipal activities categorized for easy discovery.</li>
+        <li><strong>Aggregated regional news:</strong> Curated news headlines, snippets, and direct links to established independent Valencian news outlets.</li>
+      </ul>
 
       <h2>2. Intellectual Property, Data Sources, and Attributions</h2>
       <ul>
-        <li><strong>Weather Information and Live Observations:</strong>
+        <li><strong>Weather Information:</strong>
           <ul>
-            <li>Hourly and extended numerical forecast models are powered by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> and made available under the <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">Creative Commons Attribution 4.0 International License (CC BY 4.0)</a>.</li>
-            <li>Real-time ground-truth weather observations are verified using automated aeronautical meteorological station reports (METAR/SPECI) from public data networks and the <a href="https://aviationweather.gov/" target="_blank" rel="noopener noreferrer">Aviation Weather Center (NOAA)</a>.</li>
-            <li>As a redundant fallback, the App may also query public open meteorological services including <a href="https://api.met.no/" target="_blank" rel="noopener noreferrer">MET Norway (Norwegian Meteorological Institute)</a>.</li>
+            <li>Forecast models, hourly predictions, and air quality indices are provided by <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> and made available under the <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">Creative Commons Attribution 4.0 International License (CC BY 4.0)</a>.</li>
+            <li>Real-time surface weather observations are cross-referenced with public international aeronautical weather stations (<a href="https://aviationweather.gov/" target="_blank" rel="noopener noreferrer">NOAA / Aviation Weather Center METAR</a>), public domain operational feeds.</li>
+            <li>As a network resiliency fallback, the App may query services from the <a href="https://api.met.no/" target="_blank" rel="noopener noreferrer">Norwegian Meteorological Institute (MET Norway / Yr)</a> under the Norwegian Licence for Open Government Data (NLOD) and Creative Commons.</li>
           </ul>
         </li>
         <li><strong>Municipal Agenda and Events:</strong> Information regarding public events, leisure activities, and cultural agendas is sourced from the Open Data portal of the <a href="https://valencia.es" target="_blank" rel="noopener noreferrer">City Council of Valencia (Ajuntament de València)</a>, reused under Spanish Law 37/2007 on the reuse of public sector information and municipal open catalog terms.</li>
-        <li><strong>News Articles and Media:</strong> All trademarks, publication logos, article snippets, and headlines belong solely to their respective publishers (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte). The App acts purely as a news aggregator using publicly available RSS feeds and directs users to the original publisher's website.</li>
-        <li><strong>App Software and Design:</strong> The layout, graphic interface, custom branding, and source code of Mi Valencia remain the exclusive property of the developer.</li>
+        <li><strong>News Articles and Media:</strong> All trademarks, publication logos, article snippets, and headlines belong solely to their respective publishers (À Punt, Levante-EMV, Las Provincias, elDiario.es, Superdeporte, and others). The App acts purely as an informational aggregator using publicly accessible RSS feeds and directs users to the original publisher's website.</li>
+        <li><strong>App Software and Design:</strong> The layout, graphic interface, custom branding, icons, and source code of <strong>Micalet</strong> remain the exclusive property of the independent developer.</li>
       </ul>
 
-      <h2>3. In-App Purchases ("Ad-Free Mode")</h2>
+      <h2>3. In-App Purchases ("Ad-Free Mode / Micalet Premium")</h2>
       <ul>
-        <li>The "Ad-Free Mode" is an optional, one-time non-consumable purchase granting a perpetual license to use the App free of commercial advertisements across all compatible devices linked to your Apple ID or Google account.</li>
+        <li>The "Ad-Free Mode" (or "Micalet Premium") is an optional, one-time non-consumable purchase granting a perpetual license to use the App free of commercial advertisements across all compatible devices linked to your Apple ID or Google account. No recurring subscription fees are charged.</li>
         <li>All payments, billing, and refunds are handled exclusively by the <strong>Apple App Store</strong> or <strong>Google Play Store</strong> in accordance with their respective platform terms and conditions.</li>
         <li>You can restore your purchase at any time at no additional charge using the "Restore purchases" button located in the App Settings.</li>
       </ul>
 
       <h2>4. Third-Party Advertisements and External Links</h2>
-      <p>The free version of the App may display advertisements managed by third-party advertising partners (such as Google AdMob). Advertisements may contain links to external websites, apps, or merchant offers. The developer of Mi Valencia does not control, endorse, or warrant the products, services, claims, or privacy practices of external advertisers. Any transactions, purchases, or inquiries resulting from advertised links are solely between you and the respective third-party advertiser.</p>
+      <p>The free version of the App displays advertisements managed by third-party advertising partners (such as Google AdMob). Advertisements may contain links to external websites, apps, or merchant offers. The developer of Micalet does not control, endorse, or warrant the products, services, claims, or privacy practices of external advertisers. Any transactions, purchases, or inquiries resulting from advertised links are solely between you and the respective third-party advertiser.</p>
 
       <h2>5. Disclaimer and Limitation of Liability</h2>
-      <p>All information provided in the App is provided on an "as is" and "as available" basis for general informational purposes only. The developer makes no guarantees regarding the accuracy, completeness, or timeliness of third-party feeds (such as last-minute concert cancellations or sudden localized weather fluctuations).</p>
+      <p>All information provided in Micalet is provided on an "as is" and "as available" basis for general informational purposes only. While reasonable technical efforts are maintained to ensure reliable operation, the developer makes no warranties regarding the infallibility, completeness, or timeliness of third-party feeds (such as last-minute municipal event cancellations or unexpected localized weather shifts).</p>
       <p>To the maximum extent permitted by applicable law, the developer shall not be liable for any direct, indirect, incidental, or consequential damages resulting from the use or inability to use the App.</p>
 
       <h2>6. Governing Law and Jurisdiction</h2>
-      <p>These Terms shall be governed by and construed in accordance with the laws of Spain and the European Union. Any disputes arising in connection with these Terms shall be subject to the jurisdiction of the courts of Valencia (Spain), without prejudice to mandatory statutory consumer rights.</p>
+      <p>These Terms shall be governed by and construed in accordance with the laws of Spain and the European Union. Any disputes arising in connection with these Terms shall be subject to the jurisdiction of the courts of the city of Valencia (Spain), without prejudice to mandatory statutory consumer rights.</p>
 
       <h2>7. Contact and Support</h2>
-      <p>If you have any questions, feedback, or support requests, please contact us at: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
+      <p>If you have any questions, feedback, or support requests regarding these Terms, please contact: <a href="mailto:melodicdiver@gmail.com">melodicdiver@gmail.com</a>.</p>
     </div>
   </div>
 
