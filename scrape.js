@@ -76,6 +76,11 @@ const SPORTS_FALLBACKS = {
   combat: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=600&q=80',
 };
 
+const CULTURAL_FALLBACKS = {
+  teatre: 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=800&q=80',
+  exposicions: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80',
+};
+
 /**
  * Verified Sports Fixture Registry (Safety Net Override)
  * Ensures authoritative kickoff times, venues, and descriptions for major team sports matches.
@@ -229,7 +234,6 @@ function parseSpanishDateToIso(day, month, year) {
 function extractDateFromAnyText(text) {
   if (!text) return null;
 
-  // Sanitize out ticket release announcement strings that fool scrapers into using on-sale dates
   const sanitizedText = text
     .replace(/\b(?:entradas\s+)?a\s+la\s+venta\s+(?:desde|el)\s+[^\n,.;]+/gi, '')
     .replace(/\bventa\s+p[uú]blica\s*:\s*[^\n,.;]+/gi, '')
@@ -323,158 +327,6 @@ function parseEventJsonLd(html) {
     } catch (_) {}
   }
   return null;
-}
-
-function extractAuArticleHeader(html) {
-  if (!html) return null;
-
-  const textWithNewlines = html
-    .replace(/<(?:br|\/p|\/div|\/h\d|li)[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#8217;/g, "'")
-    .replace(/&#8216;/g, "'")
-    .replace(/&#038;/g, '&')
-    .replace(/&amp;/g, '&');
-
-  const lines = textWithNewlines
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const dateIdx = lines.findIndex((l) => {
-    if (!/\b\d{1,2}(?:\/\d{1,2})+\b/.test(l)) return false;
-    return /(?:fins|hasta|del|des de|des del|dilluns|dimarts|dimecres|dijous|divendres|dissabte|diumenge|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i.test(l);
-  });
-
-  if (dateIdx === -1) return null;
-
-  const dateLine = lines[dateIdx];
-  const candidateVenueLines = [];
-  for (let i = dateIdx + 1; i < Math.min(dateIdx + 4, lines.length); i++) {
-    const line = lines[i];
-    if (line.length > 90) break;
-    if (line.length > 2) candidateVenueLines.push(line);
-  }
-
-  return { dateLine, candidateVenueLines };
-}
-
-function parseAuDateLine(dateText) {
-  if (!dateText) return null;
-  const currentYear = new Date().getFullYear();
-  const clean = dateText.replace(/\s+/g, ' ').toLowerCase();
-  const toIso = (day, month, yearStr) => parseSpanishDateToIso(day, month, yearStr);
-
-  const rangeBothMonths = clean.match(
-    /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
-  );
-  if (rangeBothMonths) {
-    let sYear = rangeBothMonths[3];
-    let eYear = rangeBothMonths[6];
-    const sMonth = parseInt(rangeBothMonths[2], 10);
-    const eMonth = parseInt(rangeBothMonths[5], 10);
-    if (!eYear && sMonth > eMonth) eYear = (currentYear + 1).toString();
-    const sIso = toIso(rangeBothMonths[1], rangeBothMonths[2], sYear);
-    const eIso = toIso(rangeBothMonths[4], rangeBothMonths[5], eYear);
-    if (eIso) return { startDate: sIso || new Date().toISOString(), endDate: eIso };
-  }
-
-  const rangeSharedMonth = clean.match(
-    /(?:del|des de|des del)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\s+(?:al|fins al|hasta el)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
-  );
-  if (rangeSharedMonth) {
-    const sIso = toIso(rangeSharedMonth[1], rangeSharedMonth[3], rangeSharedMonth[4]);
-    const eIso = toIso(rangeSharedMonth[2], rangeSharedMonth[3], rangeSharedMonth[4]);
-    if (sIso && eIso) return { startDate: sIso, endDate: eIso };
-  }
-
-  const consecutiveDays = clean.match(
-    /(\d{1,2})\s+(?:y|i)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
-  );
-  if (consecutiveDays) {
-    const sIso = toIso(consecutiveDays[1], consecutiveDays[3], consecutiveDays[4]);
-    const eIso = toIso(consecutiveDays[2], consecutiveDays[3], consecutiveDays[4]);
-    if (sIso && eIso) return { startDate: sIso, endDate: eIso };
-  }
-
-  const endMatch = clean.match(
-    /(?:fins al|fins el|fins|hasta el|hasta|al)\s+(?:[a-zçà-ú]+\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i
-  );
-  if (endMatch) {
-    let eYear = endMatch[3];
-    const eMonth = parseInt(endMatch[2], 10);
-    const currMonth = new Date().getMonth() + 1;
-    if (!eYear && eMonth < currMonth) eYear = (currentYear + 1).toString();
-    const eIso = toIso(endMatch[1], endMatch[2], eYear);
-    if (eIso) return { startDate: new Date().toISOString(), endDate: eIso };
-  }
-
-  const singleDate = clean.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/i);
-  if (singleDate) {
-    const iso = toIso(singleDate[1], singleDate[2], singleDate[3]);
-    if (iso) return { startDate: iso, endDate: undefined };
-  }
-
-  return null;
-}
-
-function resolveVenueFromCandidateLines(rawCandidateLines = []) {
-  if (!rawCandidateLines || rawCandidateLines.length === 0) {
-    return { venueName: 'València', address: 'València' };
-  }
-
-  const candidateLines = rawCandidateLines.map((line) =>
-    line
-      .replace(/^T\.\s*/i, 'Teatre ')
-      .replace(/^E\.\s*/i, 'Espai ')
-      .replace(/^F\.\s*/i, 'Fundació ')
-      .replace(/^S\.\s*/i, 'Sala ')
-      .replace(/^M\.\s*/i, 'Museu ')
-      .trim()
-  );
-
-  for (const line of candidateLines) {
-    for (const item of KNOWN_VENUES) {
-      if (item.pattern.test(line)) {
-        return { venueName: item.name, address: item.address };
-      }
-    }
-  }
-
-  for (const line of candidateLines) {
-    const plazaMatch = line.match(/^(?:pl|plaça|plaza)\.?\s+(.*)$/i);
-    if (plazaMatch) {
-      const plazaName = toNaturalCase(`Plaza de ${plazaMatch[1].trim()}`);
-      return { venueName: plazaName, address: `${plazaName}, València` };
-    }
-  }
-
-  for (const line of candidateLines) {
-    const dotSplit = line.match(/^([^.]{3,})\.\s+(.*)$/);
-    if (dotSplit) {
-      const rawV = dotSplit[1].trim();
-      const rawA = dotSplit[2].trim();
-      return {
-        venueName: toNaturalCase(rawV),
-        address: rawA.toLowerCase().includes('val') ? rawA : `${rawA}, València`,
-      };
-    }
-  }
-
-  return {
-    venueName: toNaturalCase(candidateLines[0]),
-    address: 'València',
-  };
-}
-
-function getSportsFallback(title) {
-  const t = (title || '').toLowerCase();
-  if (/tenis|tennis|wta|atp/i.test(t)) return SPORTS_FALLBACKS.tennis;
-  if (/sailing|vela|nautic/i.test(t)) return SPORTS_FALLBACKS.sailing;
-  if (/basket|baloncesto|jaula/i.test(t)) return SPORTS_FALLBACKS.basket;
-  if (/taekwondo|judo|karate|boxeo|lucha/i.test(t)) return SPORTS_FALLBACKS.combat;
-  return SPORTS_FALLBACKS.football;
 }
 
 function isValidDetailImg(url) {
@@ -616,74 +468,163 @@ async function scrapeSongkick(page, context) {
   return events;
 }
 
-// 2. Cultural Agenda (AU-Agenda)
-async function scrapeAuSection(page, context, label, category, urls) {
-  console.log(`Scraping AU-Agenda (${label})...`);
-  const rawCards = [];
+// 2. Cultural Agenda (AU-Agenda / AU Live: Escénicas & Exposiciones)
+async function scrapeAuAgenda(context) {
+  console.log('Scraping AU Live (Escénicas & Exposiciones)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
 
-  for (const url of urls) {
-    try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 35000 });
-      const cards = await page.$$eval('article, .post, .type-post', (nodes) =>
-        nodes.map((el) => {
-          const titleEl = el.querySelector('h2, h3, .entry-title');
-          const linkEl = el.querySelector('a');
-          const imgEl = el.querySelector('img');
-          const descEl = el.querySelector('.entry-summary, .entry-content, p');
+  let rawEvents = [];
 
-          return {
-            title: titleEl ? titleEl.textContent.trim() : '',
-            link: linkEl ? linkEl.href : '',
-            img: imgEl ? imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.src || '' : '',
-            desc: descEl ? descEl.textContent.trim() : '',
-          };
-        })
-      );
-      rawCards.push(...cards);
-    } catch (err) {
-      console.warn(`Could not load ${url}: ${err.message}`);
+  // Attempt 1: Fast direct API query to AU Live public REST endpoint
+  try {
+    const res = await context.request.get('https://www.au-agenda.com/api/eventos', {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      timeout: 15000,
+    });
+    if (res.ok()) {
+      const data = await res.json();
+      if (Array.isArray(data?.events)) {
+        rawEvents = data.events;
+      }
     }
+  } catch (err) {
+    console.warn(`AU Live direct API notice: ${err.message}. Trying browser fallback...`);
+  }
+
+  // Attempt 2: Headless browser fallback if direct API request failed
+  if (rawEvents.length === 0) {
+    try {
+      const page = await context.newPage();
+      await page.goto('https://www.au-agenda.com/agenda', { waitUntil: 'domcontentloaded', timeout: 35000 });
+      await page.waitForTimeout(2500);
+
+      const pageData = await page.evaluate(async () => {
+        try {
+          const r = await fetch('/api/eventos');
+          const d = await r.json();
+          return d.events || [];
+        } catch (_) {
+          return [];
+        }
+      });
+
+      if (Array.isArray(pageData) && pageData.length > 0) {
+        rawEvents = pageData;
+      }
+      await page.close();
+    } catch (err) {
+      console.warn(`AU Live browser fallback notice: ${err.message}`);
+    }
+  }
+
+  if (rawEvents.length === 0) {
+    console.warn('AU Live returned 0 events.');
+    return [];
+  }
+
+  // Filter only target categories: esceniques and exposicions (plus inauguracio-expo)
+  const targetEvents = rawEvents.filter((e) => {
+    const cat = (e.category || '').toLowerCase();
+    return cat === 'esceniques' || cat === 'exposicions' || cat === 'inauguracio-expo';
+  });
+
+  console.log(`AU Live fetched ${targetEvents.length} raw cultural items across Escénicas and Exposiciones.`);
+
+  // Group / Fold multi-day schedule instances into single cohesive event entities
+  const grouped = new Map();
+  for (const ev of targetEvents) {
+    const cat = ev.category === 'inauguracio-expo' ? 'exposicions' : ev.category;
+    // Strip trailing date "-YYYY-MM-DD" from slug to group recurring days into the root show
+    const baseSlug = (ev.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '') || ev.title.toLowerCase().trim();
+    const venueNorm = (ev.venue || '').toLowerCase().trim();
+    const groupKey = `${cat}::${venueNorm}::${baseSlug}`;
+
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, []);
+    }
+    grouped.get(groupKey).push(ev);
   }
 
   const events = [];
-  const now = new Date();
 
-  for (const card of rawCards) {
-    if (!card.title || card.title.length < 3) continue;
+  for (const [_, items] of grouped.entries()) {
+    // Sort all day slots chronologically
+    items.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+    const first = items[0];
+    const last = items[items.length - 1];
 
-    let articleHtml = '';
-    if (card.link) {
-      try {
-        const res = await context.request.get(card.link, { timeout: 10000 });
-        if (res.ok()) articleHtml = await res.text();
-      } catch (_) {}
+    const startDateStr = first.startDate;
+    const endDateStr = items.length > 1 && last.startDate !== first.startDate ? last.startDate : undefined;
+    const effectiveEnd = endDateStr || startDateStr;
+
+    // Condition 1: The event hasn't finished (never display past events)
+    if (effectiveEnd < todayStr) {
+      continue;
     }
 
-    const headerMeta = extractAuArticleHeader(articleHtml);
-    const { venueName, address } = resolveVenueFromCandidateLines(headerMeta?.candidateVenueLines);
+    // Condition 2: Active in the upcoming 30 days (startDate <= today + 30 days and effectiveEnd >= today)
+    if (startDateStr > cutoffStr) {
+      continue;
+    }
 
-    const parsedDates = parseAuDateLine(headerMeta?.dateLine);
-    const startDate = parsedDates?.startDate || now.toISOString();
-    const endDate = parsedDates?.endDate;
+    // Recover valid image from any instance in the folded series
+    const validImg = items.find(
+      (x) => x.imageUrl && typeof x.imageUrl === 'string' && x.imageUrl.startsWith('http') && isValidDetailImg(x.imageUrl)
+    )?.imageUrl;
+
+    const appCategory = first.category === 'esceniques' ? 'teatre' : 'exposicions';
+    const fallbackImg = appCategory === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions;
+
+    // Resolve venue & address through canonical registry
+    let venueName = first.venue || 'València';
+    let address = `${venueName}, València`;
+
+    for (const item of KNOWN_VENUES) {
+      if (item.pattern.test(venueName)) {
+        venueName = item.name;
+        address = item.address;
+        break;
+      }
+    }
+
+    const cleanTitle = toNaturalCase(first.title);
+    const cleanDesc = first.description
+      ? first.description.slice(0, 220).replace(/\s+/g, ' ').trim()
+      : `${appCategory === 'teatre' ? 'Artes escénicas' : 'Exposición'} en ${venueName}`;
+
+    // Clean price
+    const isFree = first.price === 'Gratis' || first.price === 'Gratuito' || first.priceFrom === 0;
+    const ticketPrice = first.price && !isFree ? first.price : undefined;
+
+    // Canonical link
+    const baseSlug = (first.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
+    const eventUrl = first.sourceUrl || `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
 
     events.push({
-      id: `au-${category}-${events.length + 1}-${Date.now()}`,
-      title: card.title,
-      description: card.desc ? card.desc.slice(0, 180) : `${label} a ${venueName}`,
-      category: category,
-      startDate,
-      endDate,
-      venueName,
-      address,
-      imageUrl: card.img || undefined,
-      isFree: false,
-      ticketPrice: undefined,
-      ticketUrl: card.link || urls[0],
-      url: card.link || urls[0],
+      id: `au-${appCategory}-${first.slug || baseSlug}-${Date.now()}`,
+      title: cleanTitle,
+      description: cleanDesc,
+      category: appCategory,
+      startDate: `${startDateStr}T19:00:00.000Z`,
+      endDate: endDateStr ? `${endDateStr}T21:00:00.000Z` : undefined,
+      venueName: venueName,
+      address: address,
+      imageUrl: validImg || fallbackImg,
+      isFree: isFree,
+      ticketPrice: ticketPrice,
+      ticketUrl: eventUrl,
+      url: eventUrl,
     });
   }
 
-  console.log(`Parsed ${events.length} items from ${label}.`);
+  console.log(`Consolidated ${events.length} clean, folded AU Live events for Escénicas and Exposiciones.`);
   return events;
 }
 
@@ -1299,28 +1240,11 @@ async function main() {
     console.error('Songkick error:', e.message);
   }
 
-  let expoEvents = [];
+  let auEvents = [];
   try {
-    const page = await context.newPage();
-    expoEvents = await scrapeAuSection(page, context, 'Exposicions', 'exposicions', [
-      'https://au-agenda.com/exposicions/',
-      'https://au-agenda.com/exposicions/page/2/',
-    ]);
-    await page.close();
+    auEvents = await scrapeAuAgenda(context);
   } catch (e) {
-    console.error('Expos error:', e.message);
-  }
-
-  let stageEvents = [];
-  try {
-    const page = await context.newPage();
-    stageEvents = await scrapeAuSection(page, context, 'Escèniques', 'teatre', [
-      'https://au-agenda.com/esceniques/',
-      'https://au-agenda.com/esceniques/page/2/',
-    ]);
-    await page.close();
-  } catch (e) {
-    console.error('Stage error:', e.message);
+    console.error('AU Agenda error:', e.message);
   }
 
   let fdmEvents = [];
@@ -1367,8 +1291,7 @@ async function main() {
     ...vcfEvents,
     ...ludEvents,
     ...musicEvents,
-    ...expoEvents,
-    ...stageEvents,
+    ...auEvents,
   ];
 
   console.log(`Total events consolidated before validation: ${combined.length}`);
