@@ -177,35 +177,55 @@ function toNaturalCase(str) {
     .join('');
 }
 
+const AWAY_STADIUMS_REGEX =
+  /anoeta|reale arena|riazor|deportivo|bernab[eé]u|santiago bernab[eé]u|metropolitano|c[ií]vitas metropolitano|wanda|camp nou|montju[iï]c|ol[ií]mpic llu[ií]s companys|san mam[eé]s|coliseum|coliseum alfonso p[eé]rez|sadar|el sadar|villamar[ií]n|benito villamar[ií]n|s[aá]nchez pizju[aá]n|ram[oó]n s[aá]nchez|bala[ií]dos|abanca bala[ií]dos|gran canaria|estadio de gran canaria|son moix|visit mallorca|mallorca son moix|mendizorroza|mendizorrotza|anxo carro|cartagonova|montilivi|estadi montilivi|jos[eé] zorrilla|zorrilla|el molin[oó]n|molin[oó]n|los c[aá]rmenes|nuevo los c[aá]rmenes|el alcoraz|butarque|estadio municipal de butarque|estadio de la cer[aá]mica|cer[aá]mica|mart[ií]nez valero|palau blaugrana|wizink center|buesa arena|fernando buesa|gran canaria arena|ol[ií]mpic de badalona|pabell[oó]n pr[ií]ncipe felipe|miribilla|bilbao arena/i;
+
+const AWAY_CITIES_REGEX =
+  /\/(san-sebastian|madrid|barcelona|bilbao|sevilla|vigo|a-coruna|coruna|pamplona|girona|palma|las-palmas|vitoria|granada|valladolid|zaragoza|gijon|santander|albacete|burgos|huesca|leganes|alcorcon|cartagena|elche|villarreal)\//i;
+
 /**
  * Filter out away matches for local Valencia sports teams.
- * The application is a local Valencia event guide and only lists home matches in Valencia.
+ * All sports events displayed in the app MUST take place within Valencia or its province.
  */
-function isAwayMatch(title, venueName) {
-  if (!title) return false;
+function isAwayMatch(title, venueName, locality, url) {
+  const t = (title || '').toLowerCase();
+  const v = (venueName || '').toLowerCase();
+  const loc = (locality || '').toLowerCase();
+  const u = (url || '').toLowerCase();
 
-  const parts = title.split(/\s+(?:vs\.?|v\.|x)\s+/i);
-  if (parts.length === 2) {
-    const homeTeam = parts[0].trim();
-    const awayTeam = parts[1].trim();
+  // 1. Venue check: Known away stadiums / arenas outside Valencia
+  if (v && AWAY_STADIUMS_REGEX.test(v)) return true;
+  if (t && AWAY_STADIUMS_REGEX.test(t)) return true;
 
-    const isValenciaClub = (t) =>
-      /levante(?:\s*ud)?|valencia(?:\s*(?:cf|basket|bc))?/i.test(t);
+  // 2. URL slug check: ticketing portal paths for away cities
+  if (u && AWAY_CITIES_REGEX.test(u)) return true;
 
-    if (!isValenciaClub(homeTeam) && isValenciaClub(awayTeam)) {
+  // 3. Locality check: cities outside Valencia metropolitan area / province
+  if (loc && !/val[eè]ncia|bu[ñn]ol|paterna|sagunt|gandia|torrent|alzira|cullera/i.test(loc)) {
+    return true;
+  }
+
+  // 4. Team positioning: In European fixtures, the home team is listed FIRST.
+  // If a Valencia club is on the visiting (right) side and a non-Valencia club is on the home (left) side, it is an away match!
+  const isValenciaClub = (str) =>
+    /levante(?:\s*ud)?|valencia(?:\s*(?:cf|basket|bc))?/i.test(str);
+
+  const parts = (title || '').split(/\s+(?:vs\.?|v\.|x)\s+/i).map((s) => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const firstTeam = parts[0];
+    const lastTeam = parts[parts.length - 1];
+    if (!isValenciaClub(firstTeam) && isValenciaClub(lastTeam)) {
       return true;
     }
   }
 
-  if (venueName) {
-    const v = venueName.toLowerCase();
-    if (
-      /riazor|deportivo|bernab[eé]u|metropolitano|camp nou|san mam[eé]s|coliseum|sadar|villamar[ií]n|s[aá]nchez pizju[aá]n|reale arena|bala[ií]dos|gran canaria|son moix|mendizorroza|anxo carro|cartagonova/i.test(
-        v
-      )
-    ) {
-      return true;
-    }
+  // 5. Catch double "vs" or patterns where opponent is listed first
+  if (
+    /(?:real sociedad|atletico|atl[eé]tico|real madrid|fc barcelona|barcelona|sevilla|real betis|athletic club|celta|osasuna|getafe|rayo vallecano|girona|mallorca|alaves|alav[eé]s|las palmas|valladolid|espanyol|leganes|legan[eé]s)\s+(?:vs\.?|v\.|x)\s+(?:levante|valencia)/i.test(
+      t
+    )
+  ) {
+    return true;
   }
 
   return false;
@@ -321,6 +341,8 @@ function parseEventJsonLd(html) {
           const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
           const price = offer?.price ? `${offer.price}€` : undefined;
 
+          const locality = item.location?.address?.addressLocality;
+
           return {
             title: item.name,
             description: item.description,
@@ -328,6 +350,7 @@ function parseEventJsonLd(html) {
             endDate: item.endDate,
             venueName: venue,
             address: address,
+            locality: locality,
             imageUrl: Array.isArray(item.image) ? item.image[0] : item.image,
             ticketPrice: price,
             ticketUrl: offer?.url || item.url,
@@ -1730,6 +1753,9 @@ async function scrapeLevanteUD(page, context) {
     });
 
     for (const m of matches) {
+      // 1. Immediate URL check: ticketing portal paths for away cities
+      if (isAwayMatch('', '', '', m.href)) continue;
+
       let detailData = null;
       let detailHtml = '';
 
@@ -1741,6 +1767,11 @@ async function scrapeLevanteUD(page, context) {
             detailData = parseEventJsonLd(detailHtml);
           }
         } catch (_) {}
+      }
+
+      // 2. Immediate detailData check on venue, locality, and title
+      if (detailData && isAwayMatch(detailData.title, detailData.venueName, detailData.locality, m.href)) {
+        continue;
       }
 
       // Priority 1: Exact SportsEvent.startDate from JSON-LD on detail page (avoids offers.validFrom on-sale timestamp!)
@@ -1787,9 +1818,24 @@ async function scrapeLevanteUD(page, context) {
       }
 
       const teamTitle = isWomen ? 'Levante UD Femenino' : 'Levante UD';
-      let opponent = detailData?.title ? detailData.title.replace(/Levante(?:\s+UD)?(?:\s+Femenino)?\s+(?:vs\.?|x|-)\s+/i, '').trim() : '';
+      const rawTitle = detailData?.title || m.titleAttr || m.rawText || '';
+      const titleParts = rawTitle.split(/\s+(?:vs\.?|v\.|x|-)\s+/i).map((s) => s.trim()).filter(Boolean);
 
-      if (!opponent) {
+      let fullTitle = '';
+      let opponent = '';
+
+      if (titleParts.length >= 2) {
+        const homeCandidate = titleParts[0];
+        const awayCandidate = titleParts[titleParts.length - 1];
+
+        // If Levante is not the home team (left side), it's an away match!
+        if (!/levante/i.test(homeCandidate)) {
+          continue; // Drop away match
+        }
+
+        opponent = awayCandidate.replace(/\b(?:Buñol|Entradas|Comprar|Ver)\b/gi, '').trim();
+        fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
+      } else {
         const candidateTitle = m.titleAttr || m.rawText;
         const matchTitle = candidateTitle.match(/Levante(?:\s+UD)?(?:\s+Femenino|\s+Fem)?\s+(?:vs\.?|x|-)\s+([A-Za-zÁ-ÿ\s]+)/i);
         if (matchTitle) {
@@ -1798,14 +1844,12 @@ async function scrapeLevanteUD(page, context) {
             .replace(/\b(?:Buñol|Entradas|Comprar|Ver)\b/gi, '')
             .trim();
         }
+        if (!opponent) opponent = isWomen ? 'Liga F Match' : 'LaLiga Match';
+        fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
       }
 
-      if (!opponent) opponent = isWomen ? 'Liga F Match' : 'LaLiga Match';
-
-      const fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
-
       // Filter out away matches
-      if (isAwayMatch(fullTitle, venueName)) continue;
+      if (isAwayMatch(fullTitle, venueName, detailData?.locality, m.href)) continue;
 
       events.push({
         id: `lud-${events.length + 1}-${Date.now()}`,
@@ -1975,7 +2019,7 @@ async function main() {
     };
   }).filter((ev) => {
     // Drop away matches
-    if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName)) {
+    if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName, ev.address, ev.ticketUrl || ev.url)) {
       return false;
     }
     return true;
