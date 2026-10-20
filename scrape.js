@@ -18,7 +18,7 @@ const KNOWN_VENUES = [
   { pattern: /reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
   { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
   { pattern: /caixaforum/i, name: 'CaixaForum València', address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València' },
-  { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
+  { pattern: /la нау/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
   { pattern: /muvim/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
   { pattern: /bot[aà]nic/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
   { pattern: /drassanes/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
@@ -465,8 +465,6 @@ async function scrapeSongkick(page, context) {
               ticketPrice: price,
               ticketUrl: offer?.url || item.url,
               url: item.url || 'https://www.songkick.com/es',
-              source: 'songkick',
-              authority: 1,
             });
           }
         }
@@ -490,6 +488,7 @@ async function scrapeAuAgenda(context) {
 
   let rawEvents = [];
 
+  // Attempt 1: Fast direct API query to AU Live public REST endpoint
   try {
     const res = await context.request.get('https://www.au-agenda.com/api/eventos', {
       headers: {
@@ -509,6 +508,7 @@ async function scrapeAuAgenda(context) {
     console.warn(`AU Live direct API notice: ${err.message}. Trying browser fallback...`);
   }
 
+  // Attempt 2: Headless browser fallback if direct API request failed
   if (rawEvents.length === 0) {
     try {
       const page = await context.newPage();
@@ -539,6 +539,7 @@ async function scrapeAuAgenda(context) {
     return [];
   }
 
+  // Filter only target categories: esceniques and exposicions (plus inauguracio-expo)
   const targetEvents = rawEvents.filter((e) => {
     const cat = (e.category || '').toLowerCase();
     return cat === 'esceniques' || cat === 'exposicions' || cat === 'inauguracio-expo';
@@ -546,9 +547,11 @@ async function scrapeAuAgenda(context) {
 
   console.log(`AU Live fetched ${targetEvents.length} raw cultural items across Escénicas and Exposiciones.`);
 
+  // Group / Fold multi-day schedule instances into single cohesive event entities
   const grouped = new Map();
   for (const ev of targetEvents) {
     const cat = ev.category === 'inauguracio-expo' ? 'exposicions' : ev.category;
+    // Strip trailing date "-YYYY-MM-DD" from slug to group recurring days into the root show
     const baseSlug = (ev.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '') || ev.title.toLowerCase().trim();
     const venueNorm = (ev.venue || '').toLowerCase().trim();
     const groupKey = `${cat}::${venueNorm}::${baseSlug}`;
@@ -562,6 +565,7 @@ async function scrapeAuAgenda(context) {
   const events = [];
 
   for (const [_, items] of grouped.entries()) {
+    // Sort all day slots chronologically
     items.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
     const first = items[0];
     const last = items[items.length - 1];
@@ -569,6 +573,7 @@ async function scrapeAuAgenda(context) {
     let startDateStr = first.startDate;
     let endDateStr = items.length > 1 && last.startDate !== first.startDate ? last.startDate : undefined;
 
+    // Parse dateLabel if startDate is omitted in AU Live editorial items
     if (!startDateStr && first.dateLabel) {
       const mRange = first.dateLabel.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
       const mHasta = first.dateLabel.match(/(?:hasta\s+el\s+|al\s+)?(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
@@ -581,7 +586,7 @@ async function scrapeAuAgenda(context) {
         const curYear = now.getFullYear();
         if (sDay && eDay && mon) {
           const eIso = `${curYear}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
-          if (eIso < todayStr) continue;
+          if (eIso < todayStr) continue; // Past expired
           startDateStr = `${curYear}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
           endDateStr = eIso;
         }
@@ -596,7 +601,7 @@ async function scrapeAuAgenda(context) {
             startDateStr = todayStr;
             endDateStr = targetIso;
           } else {
-            continue;
+            continue; // Past expired
           }
         }
       }
@@ -608,14 +613,17 @@ async function scrapeAuAgenda(context) {
 
     const effectiveEnd = endDateStr || startDateStr;
 
+    // Condition 1: The event hasn't finished (never display past events)
     if (effectiveEnd < todayStr) {
       continue;
     }
 
+    // Condition 2: Active in the upcoming 30 days (startDate <= today + 30 days and effectiveEnd >= today)
     if (startDateStr > cutoffStr) {
       continue;
     }
 
+    // Recover valid image from any instance in the folded series
     const validImg = items.find(
       (x) => x.imageUrl && typeof x.imageUrl === 'string' && x.imageUrl.startsWith('http') && isValidDetailImg(x.imageUrl)
     )?.imageUrl;
@@ -623,6 +631,7 @@ async function scrapeAuAgenda(context) {
     const appCategory = first.category === 'esceniques' ? 'teatre' : 'exposicions';
     const fallbackImg = appCategory === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions;
 
+    // Resolve venue & address through canonical registry
     let venueName = first.venue || 'València';
     let address = `${venueName}, València`;
 
@@ -639,10 +648,14 @@ async function scrapeAuAgenda(context) {
       ? first.description.slice(0, 220).replace(/\s+/g, ' ').trim()
       : `${appCategory === 'teatre' ? 'Artes escénicas' : 'Exposición'} en ${venueName}`;
 
+    // Clean price
     const isFree = first.price === 'Gratis' || first.price === 'Gratuito' || first.priceFrom === 0;
     const ticketPrice = first.price && !isFree ? first.price : undefined;
 
+    // Canonical link
     const baseSlug = (first.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
+    const eventUrl = first.sourceUrl || `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
+
     const rawLink = (first.sourceUrl || '').trim();
     const finalEventUrl = rawLink && rawLink !== '#' ? rawLink : `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
 
@@ -670,6 +683,7 @@ async function scrapeAuAgenda(context) {
 }
 
 // 2b. Official Institutional Open Data: Institut Valencià de Cultura (IVC)
+// Programmed activities for Teatre Principal de València, Teatre Rialto, and Les Arts
 async function scrapeIvcOpenData(context) {
   console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
   const now = new Date();
@@ -696,7 +710,7 @@ async function scrapeIvcOpenData(context) {
       const cols = line.split(';');
       if (cols.length < 10) continue;
 
-      const rawTitle = (cols[0] || '').replace(/^['"]|['"]$/g, '').trim();
+      const rawTitle = (cols[0] || '').replace(/^[\x27"]|[\x27"]$/g, '').trim();
       const type = (cols[1] || '').toLowerCase().trim();
       const sDate = (cols[2] || '').trim();
       const eDate = (cols[3] || '').trim();
@@ -881,7 +895,7 @@ async function scrapeMubavExposiciones(context) {
     for (const it of items) {
       const titleM = it.match(/class="[^"]*asset-title[^"]*"[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
       const dateM = it.match(/class="[^"]*asset-summary[^"]*"[^>]*>[\s\S]*?<p>([\s\S]*?)<\/p>/i);
-      const imgM = it.match(/style=['"]background-image:url\(([^)]+)\)['"]/i);
+      const imgM = it.match(/style=[\x27"]background-image:url\(([^)]+)\)[\x27"]/i);
 
       if (!titleM) continue;
       const link = titleM[1].replace(/&amp;/g, '&');
@@ -1052,12 +1066,12 @@ async function scrapeLaMutant(context) {
     }
 
     const html = await res.text();
-    const items = html.split(/class=['"][^'"]*av-masonry-entry\b/i).slice(1);
+    const items = html.split(/class=[\x27"][^\x27"]*av-masonry-entry\b/i).slice(1);
 
     for (const it of items) {
-      const titleM = it.match(/title=['"]([^'"]+)['"]/i);
-      const linkM = it.match(/data-av-masonry-custom-link=['"]([^'"]+)['"]/i) || it.match(/href=['"](https:\/\/www\.lamutant\.com\/[^'"]+)['"]/i);
-      const imgM = it.match(/<img[^>]*src=['"]([^'"]+)['"]/i);
+      const titleM = it.match(/title=[\x27"]([^\x27"]+)[\x27"]/i);
+      const linkM = it.match(/data-av-masonry-custom-link=[\x27"]([^\x27"]+)[\x27"]/i) || it.match(/href=[\x27"](https:\/\/www\.lamutant\.com\/[^\x27"]+)['"]/i);
+      const imgM = it.match(/<img[^>]*src=[\x27"]([^\x27"]+)[\x27"]/i);
 
       if (!titleM || !linkM) continue;
       const rawTitle = titleM[1].replace(/&#8217;/g, '’').replace(/&amp;/g, '&').trim();
@@ -1088,6 +1102,7 @@ async function scrapeLaMutant(context) {
   console.log(`Ingested ${events.length} official La Mutant events.`);
   return events;
 }
+
 
 // 3. Live Scraper for Fundación Deportiva Municipal (FDM València)
 async function scrapeFdmValencia(page, context) {
@@ -1300,8 +1315,6 @@ async function scrapeFdmValencia(page, context) {
         isFree: false,
         ticketUrl: item.url,
         url: item.url,
-        source: 'fdm',
-        authority: 1,
       });
     }
   } catch (err) {
@@ -1419,8 +1432,6 @@ async function scrapeValenciaBasket(page) {
         isFree: false,
         ticketUrl: CALENDAR_URL,
         url: CALENDAR_URL,
-        source: 'vbc',
-        authority: 1,
       });
     }
   } catch (err) {
@@ -1530,8 +1541,6 @@ async function scrapeValenciaCF(page, context) {
           isFree: false,
           ticketUrl: m.link,
           url: m.link,
-          source: 'vcf',
-          authority: 1,
         });
       }
     } catch (err) {
@@ -1601,11 +1610,14 @@ async function scrapeLevanteUD(page, context) {
         } catch (_) {}
       }
 
+      // Priority 1: Exact SportsEvent.startDate from JSON-LD on detail page (avoids offers.validFrom on-sale timestamp!)
       let iso = detailData?.startDate;
 
+      // Priority 2: Reconcile date from detail HTML text or raw card text
       if (!iso) {
         iso = extractDateFromAnyText(detailHtml) || extractDateFromAnyText(m.rawText);
       } else {
+        // Reconcile if JSON-LD date differs from text description in HTML
         iso = reconcileDateWithText(iso, detailHtml || m.rawText);
       }
 
@@ -1628,6 +1640,7 @@ async function scrapeLevanteUD(page, context) {
         ? 'Camino del Oliveral, s/n, 46360 Buñol, València'
         : 'Carrer de Sant Vicent de Paül, 44, 46019 València';
 
+      // Detect competition cleanly from URL & detail text rather than hardcoding
       const lowerCombo = (m.href + ' ' + m.rawText + ' ' + detailHtml).toLowerCase();
       let competition = 'LaLiga EA Sports';
       if (isWomen) {
@@ -1658,6 +1671,7 @@ async function scrapeLevanteUD(page, context) {
 
       const fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
 
+      // Filter out away matches
       if (isAwayMatch(fullTitle, venueName)) continue;
 
       events.push({
@@ -1672,8 +1686,6 @@ async function scrapeLevanteUD(page, context) {
         isFree: false,
         ticketUrl: m.href,
         url: m.href,
-        source: 'lud',
-        authority: 1,
       });
     }
   } catch (err) {
@@ -1711,6 +1723,33 @@ async function main() {
     console.error('AU Agenda error:', e.message);
   }
 
+  let fdmEvents = [];
+  try {
+    const page = await context.newPage();
+    fdmEvents = await scrapeFdmValencia(page, context);
+    await page.close();
+  } catch (e) {
+    console.error('FDM error:', e.message);
+  }
+
+  let vbcEvents = [];
+  try {
+    const page = await context.newPage();
+    vbcEvents = await scrapeValenciaBasket(page);
+    await page.close();
+  } catch (e) {
+    console.error('Valencia Basket error:', e.message);
+  }
+
+  let vcfEvents = [];
+  try {
+    const page = await context.newPage();
+    vcfEvents = await scrapeValenciaCF(page, context);
+    await page.close();
+  } catch (e) {
+    console.error('Valencia CF error:', e.message);
+  }
+
   let ivcEvents = [];
   try {
     ivcEvents = await scrapeIvcOpenData(context);
@@ -1746,33 +1785,6 @@ async function main() {
     console.error('La Mutant error:', e.message);
   }
 
-  let fdmEvents = [];
-  try {
-    const page = await context.newPage();
-    fdmEvents = await scrapeFdmValencia(page, context);
-    await page.close();
-  } catch (e) {
-    console.error('FDM error:', e.message);
-  }
-
-  let vbcEvents = [];
-  try {
-    const page = await context.newPage();
-    vbcEvents = await scrapeValenciaBasket(page);
-    await page.close();
-  } catch (e) {
-    console.error('Valencia Basket error:', e.message);
-  }
-
-  let vcfEvents = [];
-  try {
-    const page = await context.newPage();
-    vcfEvents = await scrapeValenciaCF(page, context);
-    await page.close();
-  } catch (e) {
-    console.error('Valencia CF error:', e.message);
-  }
-
   let ludEvents = [];
   try {
     const page = await context.newPage();
@@ -1801,47 +1813,45 @@ async function main() {
 
   console.log(`Total events consolidated before validation: ${combined.length}`);
 
-  const processed = combined
-    .map((ev) => {
-      let startDate = (ev.startDate || '').trim();
-      let endDate = (ev.endDate || '').trim();
-      let venueName = ev.venueName;
-      let address = ev.address;
-      let description = ev.description;
+  const processed = combined.map((ev) => {
+    let startDate = (ev.startDate || '').trim();
+    let endDate = (ev.endDate || '').trim();
+    let venueName = ev.venueName;
+    let address = ev.address;
+    let description = ev.description;
 
-      const normKey = normalizeKey(ev.title);
+    const normKey = normalizeKey(ev.title);
 
-      // Apply Verified Fixtures Safety Registry Override
-      if (VERIFIED_FIXTURES[normKey]) {
-        const fix = VERIFIED_FIXTURES[normKey];
-        startDate = fix.startDate;
-        if (fix.endDate) endDate = fix.endDate;
-        if (fix.venueName) venueName = fix.venueName;
-        if (fix.address) address = fix.address;
-        if (fix.description) description = fix.description;
-      }
+    // Apply Verified Fixtures Safety Registry Override
+    if (VERIFIED_FIXTURES[normKey]) {
+      const fix = VERIFIED_FIXTURES[normKey];
+      startDate = fix.startDate;
+      if (fix.endDate) endDate = fix.endDate;
+      if (fix.venueName) venueName = fix.venueName;
+      if (fix.address) address = fix.address;
+      if (fix.description) description = fix.description;
+    }
 
-      return {
-        ...ev,
-        startDate,
-        endDate: endDate || undefined,
-        venueName,
-        address,
-        description,
-      };
-    })
-    .filter((ev) => {
-      // Drop away matches
-      if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName)) {
-        return false;
-      }
-      return true;
-    });
+    return {
+      ...ev,
+      startDate,
+      endDate: endDate || undefined,
+      venueName,
+      address,
+      description,
+    };
+  }).filter((ev) => {
+    // Drop away matches
+    if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName)) {
+      return false;
+    }
+    return true;
+  });
 
-  // Multi-Source Deduplication & Multi-Date Run Consolidation Pipeline:
+  // Multi-Source Deduplication & Enrichment Pipeline:
   // Detects and unifies duplicate events from AU Agenda, official portals (Olympia, Talia, IVC, MuBAV, IVAM),
   // ticketing providers, and open data feeds based on date overlap, venue matching, title containment,
-  // keyword overlap, ticket URL slug matching, and multi-performance theater run windows.
+  // keyword overlap, and ticket URL slug matching.
   function cleanVenueForMatching(venue) {
     if (!venue) return '';
     let v = stripAccents(venue).toLowerCase();
