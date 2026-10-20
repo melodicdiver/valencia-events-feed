@@ -356,6 +356,95 @@ function isValidDetailImg(url) {
   return true;
 }
 
+function cleanAuSlug(slug) {
+  if (!slug) return '';
+  return slug
+    .replace(/-\d{4}-\d{2}-\d{2}(?:-\d+)?$/, '')
+    .replace(/-\d+$/, '')
+    .trim();
+}
+
+function cleanVenueForMatching(venue) {
+  if (!venue) return '';
+  let v = stripAccents(venue).toLowerCase();
+  v = v.replace(/^(teatre|teatro|sala|auditori|auditorio|palacio de las artes|palau de les arts|palau de la musica|estadio de|centre|centro)\s+/gi, '');
+  v = v.replace(/\b(valencia|valència)\b/gi, '');
+  return v.trim();
+}
+
+function cleanTitleForComparison(title) {
+  if (!title) return '';
+  let t = stripAccents(title).toLowerCase();
+  t = t.replace(/\s+@\s+.*$/, '');
+  t = t.replace(/^(la rialleta|ciclo|cicle|festival|temporada|gira|espectaculo|obra|exposicion|exposicio|concierto|concert):\s*/gi, '');
+  t = t.replace(/[\u2018\u2019\u201C\u201D\x27\x22`´:;–—\-.,?!()[\]{}]/g, ' ');
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+const STOPWORDS = new Set([
+  'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
+  'y', 'i', 'en', 'a', 'al', 'per', 'por', 'con', 'show', 'teatre', 'teatro',
+  'valencia', 'valència', 'live', 'tour', 'trio', 'band', 'cia', 'cia.'
+]);
+
+function extractSignificantKeywords(title) {
+  const norm = cleanTitleForComparison(title);
+  return norm.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+}
+
+const GENERIC_SLUGS = new Set([
+  'agenda', 'calendario', 'cartelera', 'eventos', 'espectaculos',
+  'entradas', 'home', 'index', 'programacion', 'valencia', 'evento'
+]);
+
+function extractSpecificSlug(url) {
+  if (!url || url === '#') return '';
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (!parts.length) return '';
+    let slug = parts[parts.length - 1];
+    if (/^[A-Z0-9_-]{8,}$/.test(slug) && parts.length > 1) {
+      slug = parts[parts.length - 2];
+    }
+    slug = slug.replace(/\.html?$/i, '').replace(/-\d+$/, '').toLowerCase();
+    if (GENERIC_SLUGS.has(slug) || slug.length < 5) return '';
+    return slug;
+  } catch {
+    return '';
+  }
+}
+
+function isDirectTicketingUrl(url) {
+  if (!url || url === '#') return false;
+  return (
+    /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com/i.test(url) &&
+    !/au-agenda\.com\/evento/i.test(url)
+  );
+}
+
+function isAbono(title, desc = '') {
+  const s = `${title || ''} ${desc || ''}`;
+  return /\b(abono|abonos|abonament|abonaments)\b/i.test(s);
+}
+
+function isSocialOrJunk(title, url = '') {
+  const t = (title || '').trim();
+  const u = (url || '').trim();
+  if (/\b(facebook|instagram|twitter|tiktok|youtube|linkedin|social|link to facebook|redes sociales|comparte en|s[ií]guenos)\b/i.test(t)) return true;
+  if (/facebook\.com|instagram\.com|twitter\.com|x\.com|youtube\.com|tiktok\.com|linkedin\.com/i.test(u)) return true;
+  if (/^(link|enlace|web|inicio|share|compartir)$/i.test(t)) return true;
+  return false;
+}
+
+function isCinemaOrMovie(title, desc = '', type = '', cat = '') {
+  if (/^(cine|cinema)$/i.test(cat)) return true;
+  if (/pel[ií]cula|audiovisuales/i.test(type)) return true;
+  const s = `${title || ''} ${desc || ''}`;
+  if (/\b(ciclo de cine|cicle de cinema|filmoteca|proyecci[oó]n de la pel[ií]cula|projecci[oó] de la pel[·.]l[ií]cula|sesi[oó]n de cine|cineclub|proyecci[oó]n de cortos|curtmetratges|cortometrajes|film screening|proyecci[oó]n cinematogr[aá]fica)\b/i.test(s)) return true;
+  return false;
+}
+
 // 1. Music (Songkick - Spanish Version)
 async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música en español)...');
@@ -540,9 +629,14 @@ async function scrapeAuAgenda(context) {
   }
 
   // Filter only target categories: esceniques and exposicions (plus inauguracio-expo)
+  // Exclude abonos/seasonal subscriptions, social/facebook items, and cinema/movies
   const targetEvents = rawEvents.filter((e) => {
     const cat = (e.category || '').toLowerCase();
-    return cat === 'esceniques' || cat === 'exposicions' || cat === 'inauguracio-expo';
+    if (cat !== 'esceniques' && cat !== 'exposicions' && cat !== 'inauguracio-expo') return false;
+    if (isAbono(e.title, e.description)) return false;
+    if (isSocialOrJunk(e.title, e.sourceUrl || e.url)) return false;
+    if (isCinemaOrMovie(e.title, e.description, '', cat)) return false;
+    return true;
   });
 
   console.log(`AU Live fetched ${targetEvents.length} raw cultural items across Escénicas and Exposiciones.`);
@@ -551,10 +645,10 @@ async function scrapeAuAgenda(context) {
   const grouped = new Map();
   for (const ev of targetEvents) {
     const cat = ev.category === 'inauguracio-expo' ? 'exposicions' : ev.category;
-    // Strip trailing date "-YYYY-MM-DD" from slug to group recurring days into the root show
-    const baseSlug = (ev.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '') || ev.title.toLowerCase().trim();
-    const venueNorm = (ev.venue || '').toLowerCase().trim();
-    const groupKey = `${cat}::${venueNorm}::${baseSlug}`;
+    const cleanSlug = cleanAuSlug(ev.slug) || normalizeKey(ev.title).replace(/[^a-z0-9]+/g, '-');
+    const venueNorm = cleanVenueForMatching(ev.venue);
+    // Group by category, normalized venue, and normalized title so all sessions and repeated dates fold into one cohesive show
+    const groupKey = `${cat}::${venueNorm}::${normalizeKey(ev.title)}`;
 
     if (!grouped.has(groupKey)) {
       grouped.set(groupKey, []);
@@ -570,8 +664,13 @@ async function scrapeAuAgenda(context) {
     const first = items[0];
     const last = items[items.length - 1];
 
-    let startDateStr = first.startDate;
-    let endDateStr = items.length > 1 && last.startDate !== first.startDate ? last.startDate : undefined;
+    // Gather all valid session dates
+    const validDates = items.map((it) => it.startDate).filter(Boolean).sort();
+    let startDateStr = validDates[0] || first.startDate;
+    let endDateStr =
+      validDates.length > 1 && validDates[validDates.length - 1] !== startDateStr
+        ? validDates[validDates.length - 1]
+        : undefined;
 
     // Parse dateLabel if startDate is omitted in AU Live editorial items
     if (!startDateStr && first.dateLabel) {
@@ -652,15 +751,37 @@ async function scrapeAuAgenda(context) {
     const isFree = first.price === 'Gratis' || first.price === 'Gratuito' || first.priceFrom === 0;
     const ticketPrice = first.price && !isFree ? first.price : undefined;
 
-    // Canonical link
-    const baseSlug = (first.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    const eventUrl = first.sourceUrl || `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
+    // Canonical link resolution:
+    // Working AU Agenda web pages are at /esceniques/${cleanSlug}/ and /exposicions/${cleanSlug}/
+    const cleanSlug = cleanAuSlug(first.slug) || normalizeKey(first.title).replace(/[^a-z0-9]+/g, '-');
+    const auCategoryPath = appCategory === 'teatre' ? 'esceniques' : 'exposicions';
+    const canonicalAuUrl = `https://au-agenda.com/${auCategoryPath}/${cleanSlug}/`;
 
-    const rawLink = (first.sourceUrl || '').trim();
-    const finalEventUrl = rawLink && rawLink !== '#' ? rawLink : `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
+    // Direct ticket link priority
+    let directTicketUrl = null;
+    for (const it of items) {
+      const u = (it.sourceUrl || it.ticketUrl || '').trim();
+      if (u && u !== '#' && isDirectTicketingUrl(u)) {
+        directTicketUrl = u;
+        break;
+      }
+    }
+
+    // External link (non-AU and non-Facebook)
+    let externalLink = null;
+    for (const it of items) {
+      const u = (it.sourceUrl || it.url || '').trim();
+      if (u && u !== '#' && !u.includes('au-agenda.com') && !u.includes('facebook.com')) {
+        externalLink = u;
+        break;
+      }
+    }
+
+    const finalUrl = externalLink || directTicketUrl || canonicalAuUrl;
+    const finalTicketUrl = directTicketUrl || finalUrl;
 
     events.push({
-      id: `au-${appCategory}-${first.slug || baseSlug}-${Date.now()}`,
+      id: `au-${appCategory}-${cleanSlug}-${Date.now()}`,
       title: cleanTitle,
       description: cleanDesc,
       category: appCategory,
@@ -671,8 +792,8 @@ async function scrapeAuAgenda(context) {
       imageUrl: validImg || fallbackImg,
       isFree: isFree,
       ticketPrice: ticketPrice,
-      ticketUrl: finalEventUrl,
-      url: finalEventUrl,
+      ticketUrl: finalTicketUrl,
+      url: finalUrl,
       source: 'au',
       authority: 2,
     });
@@ -721,6 +842,12 @@ async function scrapeIvcOpenData(context) {
       const link = (cols[14] || '').trim();
 
       if (!mun || !/val[eè]ncia/i.test(mun)) continue;
+      // Exclude cinema/film screenings and Filmoteca (Edificio Rialto)
+      if (/pel[ií]cula|audiovisuales|cine/i.test(type)) continue;
+      if (/edificio rialto/i.test(rawVenue)) continue;
+      if (/pelicula-|audiovisuales/i.test(link)) continue;
+      // Exclude abonos / seasonal subscriptions
+      if (isAbono(rawTitle)) continue;
 
       const parseD = (d) => {
         const m = (d || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -1075,8 +1202,11 @@ async function scrapeLaMutant(context) {
 
       if (!titleM || !linkM) continue;
       const rawTitle = titleM[1].replace(/&#8217;/g, '’').replace(/&amp;/g, '&').trim();
-      const title = toNaturalCase(rawTitle);
       const link = linkM[1];
+      if (isSocialOrJunk(rawTitle, link)) continue;
+      if (isAbono(rawTitle)) continue;
+      if (isCinemaOrMovie(rawTitle)) continue;
+      const title = toNaturalCase(rawTitle);
       const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.teatre;
 
       events.push({
@@ -1140,10 +1270,13 @@ async function scrapeFdmValencia(page, context) {
             const h = (a.href || '').trim();
             return (
               txt.length >= 6 &&
-              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más)$/i.test(txt) &&
+              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más|facebook|instagram|twitter)$/i.test(txt) &&
               !h.includes('aviso') &&
               !h.includes('cookies') &&
-              !h.includes('privacidad')
+              !h.includes('privacidad') &&
+              !h.includes('facebook.com') &&
+              !h.includes('twitter.com') &&
+              !h.includes('instagram.com')
             );
           });
 
@@ -1938,11 +2071,15 @@ async function main() {
 
     if (startA.slice(0, 10) === startB.slice(0, 10)) return true;
 
+    // Single session falls within run of show
     if (sB >= sA && sB <= eA) return true;
     if (sA >= sB && sA <= eB) return true;
 
-    const SixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
-    if (Math.abs(sA - sB) <= SixtyDaysMs) return true;
+    // Multi-day runs overlap
+    if (sA <= eB && sB <= eA) return true;
+
+    const FourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    if (Math.abs(sA - sB) <= FourteenDaysMs) return true;
 
     return false;
   }
@@ -1963,7 +2100,7 @@ async function main() {
 
     const t1 = cleanTitleForComparison(e1.title);
     const t2 = cleanTitleForComparison(e2.title);
-    const titleMatch = t1 === t2 || (t1.length >= 5 && t2.length >= 5 && (t1.includes(t2) || t2.includes(t1)));
+    const titleMatch = t1 === t2 || (t1.length >= 4 && t2.length >= 4 && (t1.includes(t2) || t2.includes(t1)));
 
     const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
     const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
@@ -2009,6 +2146,14 @@ async function main() {
       base.ticketUrl = other.ticketUrl;
     }
     if (!isDirectTicketingUrl(base.url) && isDirectTicketingUrl(other.url)) {
+      base.url = other.url;
+    }
+
+    // Fix empty or # or broken links
+    if ((!base.ticketUrl || base.ticketUrl === '#' || base.ticketUrl.includes('au-agenda.com/evento/')) && other.ticketUrl && other.ticketUrl !== '#' && !other.ticketUrl.includes('au-agenda.com/evento/')) {
+      base.ticketUrl = other.ticketUrl;
+    }
+    if ((!base.url || base.url === '#' || base.url.includes('au-agenda.com/evento/')) && other.url && other.url !== '#' && !other.url.includes('au-agenda.com/evento/')) {
       base.url = other.url;
     }
 
@@ -2063,10 +2208,19 @@ async function main() {
 
   const validEvents = processed.filter((ev) => {
     const cleanTitle = (ev.title || '').trim();
-    return (
-      cleanTitle.length >= 4 &&
-      !/^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)
-    );
+    if (
+      cleanTitle.length < 4 ||
+      /^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)
+    ) {
+      return false;
+    }
+    // Exclude seasonal subscriptions/abonos
+    if (isAbono(ev.title, ev.description)) return false;
+    // Exclude social media links and junk cards
+    if (isSocialOrJunk(ev.title, ev.url || ev.ticketUrl)) return false;
+    // Exclude movies/cinemas
+    if (isCinemaOrMovie(ev.title, ev.description, '', ev.category)) return false;
+    return true;
   });
 
   const deduplicated = deduplicateAndMergeEvents(validEvents);
