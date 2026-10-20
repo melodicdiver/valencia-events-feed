@@ -1072,7 +1072,7 @@ async function scrapeIvcOpenData(context) {
 }
 
 // 2c. Museum Anchor: Institut Valencià d'Art Modern (IVAM)
-async function scrapeIvamExposiciones(context) {
+async function scrapeIvamExposiciones(page, context) {
   console.log('Scraping IVAM (Institut Valencià d’Art Modern)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
@@ -1083,79 +1083,87 @@ async function scrapeIvamExposiciones(context) {
   const events = [];
 
   try {
-    const res = await context.request.get('https://www.ivam.es/es/exposiciones/', {
-      headers: {
-        'Accept': 'text/html,application/xhtml+xml',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      },
-      timeout: 20000,
-    });
+    let html = '';
+    if (page) {
+      await page.goto('https://www.ivam.es/es/exposiciones/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(2000);
+      html = await page.content();
+    } else if (context) {
+      const res = await context.request.get('https://www.ivam.es/es/exposiciones/', {
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+        timeout: 20000,
+      });
 
-    if (!res.ok()) {
-      console.warn('IVAM request status: ' + res.status());
-      return [];
+      if (res.ok()) {
+        html = await res.text();
+      }
     }
 
-    const html = await res.text();
-    const cards = html.split(/class="[^"]*ivam-post-card\b/i).slice(1);
+    if (html) {
+      const cards = html.split(/class="[^"]*ivam-post-card\b/i).slice(1);
 
-    for (const card of cards) {
-      const titleM = card.match(/class="ivam-post-card__title">([\s\S]*?)<\/h3>/i);
-      const linkM = card.match(/href="(https:\/\/ivam\.es\/es\/exposiciones\/[^"]+)"/i);
-      const imgM = card.match(/class="ivam-post-card__img"[^>]*src="([^"]+)"/i);
-      const dateM = card.match(/<p class="date">([\s\S]*?)<\/p>/i);
-      const venueM = card.match(/<span>(IVAM[^<]*)<\/span>/i);
+      for (const card of cards) {
+        const titleM = card.match(/class="ivam-post-card__title">([\s\S]*?)<\/h3>/i);
+        const linkM = card.match(/href="(https:\/\/ivam\.es\/es\/exposiciones\/[^"]+)"/i);
+        const imgM = card.match(/class="ivam-post-card__img"[^>]*src="([^"]+)"/i);
+        const dateM = card.match(/<p class="date">([\s\S]*?)<\/p>/i);
+        const venueM = card.match(/<span>(IVAM[^<]*)<\/span>/i);
 
-      if (!titleM || !linkM) continue;
-      const title = toNaturalCase(titleM[1].replace(/<[^>]+>/g, '').trim());
-      const link = linkM[1];
-      const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.exposicions;
-      const dateRaw = dateM ? dateM[1].replace(/<[^>]+>/g, '').trim() : '';
-      const venue = venueM ? venueM[1].trim() : 'IVAM Centre Julio González';
+        if (!titleM || !linkM) continue;
+        const title = toNaturalCase(titleM[1].replace(/<[^>]+>/g, '').trim());
+        const link = linkM[1];
+        const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.exposicions;
+        const dateRaw = dateM ? dateM[1].replace(/<[^>]+>/g, '').trim() : '';
+        const venue = venueM ? venueM[1].trim() : 'IVAM Centre Julio González';
 
-      const rawYears = dateRaw.match(/\b(20\d{2})\b/g) || [];
-      const endYearFallback = rawYears.length > 0 ? parseInt(rawYears[rawYears.length - 1], 10) : now.getFullYear();
+        const rawYears = dateRaw.match(/\b(20\d{2})\b/g) || [];
+        const endYearFallback = rawYears.length > 0 ? parseInt(rawYears[rawYears.length - 1], 10) : now.getFullYear();
 
-      const parseDate = (str, fallbackYr) => {
-        if (!str) return null;
-        const m = str.match(/(\d{1,2})\s+([a-zçà-ú]{3,4})\.?(?:\s+(\d{4}))?/i);
-        if (!m) return null;
-        const day = parseInt(m[1], 10);
-        const monKey = m[2].toLowerCase().slice(0, 3);
-        const mon = months[monKey];
-        const yr = m[3] ? parseInt(m[3], 10) : fallbackYr;
-        if (!mon || !yr) return null;
-        return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      };
+        const parseDate = (str, fallbackYr) => {
+          if (!str) return null;
+          const m = str.match(/(\d{1,2})\s+([a-zçà-ú]{3,4})\.?(?:\s+(\d{4}))?/i);
+          if (!m) return null;
+          const day = parseInt(m[1], 10);
+          const monKey = m[2].toLowerCase().slice(0, 3);
+          const mon = months[monKey];
+          const yr = m[3] ? parseInt(m[3], 10) : fallbackYr;
+          if (!mon || !yr) return null;
+          return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        };
 
-      const startIso = parseDate(dateParts[0], endYearFallback);
-      const endIso = dateParts[1] ? parseDate(dateParts[1], endYearFallback) : undefined;
+        const dateParts = dateRaw.split(/\s*-\s*|\s+a\s+/i);
+        const startIso = parseDate(dateParts[0], endYearFallback);
+        const endIso = dateParts[1] ? parseDate(dateParts[1], endYearFallback) : undefined;
 
-      if (!startIso) continue;
-      const effectiveEnd = endIso || startIso;
-      if (effectiveEnd < todayStr) continue;
-      if (startIso > cutoffStr) continue;
+        if (!startIso) continue;
+        const effectiveEnd = endIso || startIso;
+        if (effectiveEnd < todayStr) continue;
+        if (startIso > cutoffStr) continue;
 
-      const slug = link.replace(/.*\/exposiciones\/([^/]+)\/?$/, '$1') || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const slug = link.replace(/.*\/exposiciones\/([^/]+)\/?$/, '$1') || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-      events.push({
-        id: `ivam-expo-${slug}`,
-        title,
-        description: `Exposición oficial en el Institut Valencià d’Art Modern (IVAM). ${dateRaw}`,
-        category: 'exposicions',
-        startDate: `${startIso}T10:00:00.000Z`,
-        endDate: endIso ? `${endIso}T20:00:00.000Z` : undefined,
-        venueName: venue,
-        address: 'Guillem de Castro, 118, 46003 València',
-        imageUrl: img,
-        isFree: false,
-        ticketPrice: '5 €',
-        ticketUrl: link,
-        url: link,
-        source: 'ivam',
-        authority: 1,
-      });
+        events.push({
+          id: `ivam-expo-${slug}`,
+          title,
+          description: `Exposición oficial en el Institut Valencià d’Art Modern (IVAM). ${dateRaw}`,
+          category: 'exposicions',
+          startDate: `${startIso}T10:00:00.000Z`,
+          endDate: endIso ? `${endIso}T20:00:00.000Z` : undefined,
+          venueName: venue,
+          address: 'Guillem de Castro, 118, 46003 València',
+          imageUrl: img,
+          isFree: false,
+          ticketPrice: '5 €',
+          ticketUrl: link,
+          url: link,
+          source: 'ivam',
+          authority: 1,
+        });
+      }
     }
   } catch (err) {
     console.warn(`IVAM scrape notice: ${err.message}`);
@@ -2104,7 +2112,9 @@ async function main() {
 
   let ivamEvents = [];
   try {
-    ivamEvents = await scrapeIvamExposiciones(context);
+    const ivamPage = await browser.newPage();
+    ivamEvents = await scrapeIvamExposiciones(ivamPage, context);
+    await ivamPage.close();
   } catch (e) {
     console.error('IVAM error:', e.message);
   }
