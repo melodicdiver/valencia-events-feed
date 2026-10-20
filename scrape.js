@@ -76,6 +76,16 @@ const SPORTS_FALLBACKS = {
   combat: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=600&q=80',
 };
 
+function getSportsFallback(title) {
+  const t = (title || '').toLowerCase();
+  if (/basket|baloncesto/i.test(t)) return SPORTS_FALLBACKS.basket;
+  if (/futbol|fútbol|soccer/i.test(t)) return SPORTS_FALLBACKS.football;
+  if (/tennis|tenis/i.test(t)) return SPORTS_FALLBACKS.tennis;
+  if (/vela|sailing|marina/i.test(t)) return SPORTS_FALLBACKS.sailing;
+  if (/taekwondo|judo|karate|boxeo|combat/i.test(t)) return SPORTS_FALLBACKS.combat;
+  return SPORTS_FALLBACKS.running;
+}
+
 const CULTURAL_FALLBACKS = {
   teatre: 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=800&q=80',
   exposicions: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80',
@@ -455,6 +465,8 @@ async function scrapeSongkick(page, context) {
               ticketPrice: price,
               ticketUrl: offer?.url || item.url,
               url: item.url || 'https://www.songkick.com/es',
+              source: 'songkick',
+              authority: 1,
             });
           }
         }
@@ -560,8 +572,47 @@ async function scrapeAuAgenda(context) {
     const first = items[0];
     const last = items[items.length - 1];
 
-    const startDateStr = first.startDate;
-    const endDateStr = items.length > 1 && last.startDate !== first.startDate ? last.startDate : undefined;
+    let startDateStr = first.startDate;
+    let endDateStr = items.length > 1 && last.startDate !== first.startDate ? last.startDate : undefined;
+
+    // Parse dateLabel if startDate is omitted in AU Live editorial items
+    if (!startDateStr && first.dateLabel) {
+      const mRange = first.dateLabel.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
+      const mHasta = first.dateLabel.match(/(?:hasta\s+el\s+|al\s+)?(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
+      const monthMap = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
+
+      if (mRange) {
+        const sDay = parseInt(mRange[1], 10);
+        const eDay = parseInt(mRange[2], 10);
+        const mon = monthMap[mRange[3].toLowerCase().slice(0, 3)];
+        const curYear = now.getFullYear();
+        if (sDay && eDay && mon) {
+          const eIso = `${curYear}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
+          if (eIso < todayStr) continue; // Past expired
+          startDateStr = `${curYear}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
+          endDateStr = eIso;
+        }
+      } else if (mHasta) {
+        const day = parseInt(mHasta[1], 10);
+        const mon = monthMap[mHasta[2].toLowerCase().slice(0, 3)];
+        if (day && mon) {
+          let targetYear = now.getFullYear();
+          if (mon < (now.getMonth() + 1)) targetYear += 1;
+          const targetIso = `${targetYear}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          if (targetIso >= todayStr) {
+            startDateStr = todayStr;
+            endDateStr = targetIso;
+          } else {
+            continue; // Past expired
+          }
+        }
+      }
+    }
+
+    if (!startDateStr || startDateStr === 'undefined' || startDateStr.includes('undefined')) {
+      continue;
+    }
+
     const effectiveEnd = endDateStr || startDateStr;
 
     // Condition 1: The event hasn't finished (never display past events)
@@ -605,7 +656,8 @@ async function scrapeAuAgenda(context) {
 
     // Canonical link
     const baseSlug = (first.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    const eventUrl = first.sourceUrl || `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
+    const rawLink = (first.sourceUrl || '').trim();
+    const finalEventUrl = rawLink && rawLink !== '#' ? rawLink : `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
 
     events.push({
       id: `au-${appCategory}-${first.slug || baseSlug}-${Date.now()}`,
@@ -619,12 +671,435 @@ async function scrapeAuAgenda(context) {
       imageUrl: validImg || fallbackImg,
       isFree: isFree,
       ticketPrice: ticketPrice,
-      ticketUrl: eventUrl,
-      url: eventUrl,
+      ticketUrl: finalEventUrl,
+      url: finalEventUrl,
+      source: 'au',
+      authority: 2,
     });
   }
 
   console.log(`Consolidated ${events.length} clean, folded AU Live events for Escénicas and Exposiciones.`);
+  return events;
+}
+
+// 2b. Official Institutional Open Data: Institut Valencià de Cultura (IVC)
+// Programmed activities for Teatre Principal de València, Teatre Rialto, and Les Arts
+async function scrapeIvcOpenData(context) {
+  console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+  const events = [];
+
+  try {
+    const res = await context.request.get(
+      'https://dadesobertes.gva.es/dataset/25cc4d21-e1dd-4d05-b057-dbcc44d4338c/resource/f76b5222-c09f-46cb-8bb0-4fbe377c611d/download/lista-de-actividades-culturales-programadas-por-el-ivc.csv',
+      { timeout: 20000 }
+    );
+    if (!res.ok()) {
+      console.warn('IVC Open Data request returned ' + res.status());
+      return [];
+    }
+    const text = await res.text();
+    const lines = text.split('\n');
+
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const cols = line.split(';');
+      if (cols.length < 10) continue;
+
+      const rawTitle = (cols[0] || '').replace(/^['"]|['"]$/g, '').trim();
+      const type = (cols[1] || '').toLowerCase().trim();
+      const sDate = (cols[2] || '').trim();
+      const eDate = (cols[3] || '').trim();
+      const mun = (cols[7] || '').trim();
+      const rawVenue = (cols[8] || '').trim();
+      const address = (cols[9] || '').trim() || 'València';
+      const price = (cols[11] || '').trim();
+      const link = (cols[14] || '').trim();
+
+      if (!mun || !/val[eè]ncia/i.test(mun)) continue;
+
+      const parseD = (d) => {
+        const m = (d || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (!m) return null;
+        return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+      };
+
+      const sIso = parseD(sDate);
+      const eIso = parseD(eDate) || sIso;
+
+      if (!sIso) continue;
+      if (eIso < todayStr) continue;
+      if (sIso > cutoffStr) continue;
+
+      let category = 'teatre';
+      if (/m[uú]sic/.test(type)) category = 'musica';
+      else if (/exposi|art/i.test(type)) category = 'exposicions';
+
+      let venueName = rawVenue;
+      if (/principal/i.test(venueName)) venueName = 'Teatre Principal';
+      else if (/rialto/i.test(venueName)) venueName = 'Teatre Rialto';
+      else if (/arts/i.test(venueName)) venueName = 'Palau de les Arts Reina Sofía';
+
+      const isFree = /gratu|libre|lliure/i.test(price) || price === '0' || price === '0 €';
+      const cleanTitle = toNaturalCase(rawTitle);
+
+      events.push({
+        id: `ivc-${category}-${normalizeKey(cleanTitle).slice(0, 30)}-${sIso}`,
+        title: cleanTitle,
+        description: `Programación oficial del Institut Valencià de Cultura (IVC) en ${venueName}. ${type}`,
+        category,
+        startDate: `${sIso}T19:00:00.000Z`,
+        endDate: eIso && eIso !== sIso ? `${eIso}T21:00:00.000Z` : undefined,
+        venueName,
+        address: address || `${venueName}, València`,
+        imageUrl: category === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions,
+        isFree,
+        ticketPrice: price && !isFree ? price : undefined,
+        ticketUrl: link || 'https://ivc.gva.es',
+        url: link || 'https://ivc.gva.es',
+        source: 'ivc',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`IVC Open Data notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official IVC events (Principal, Rialto, Les Arts).`);
+  return events;
+}
+
+// 2c. Museum Anchor: Institut Valencià d'Art Modern (IVAM)
+async function scrapeIvamExposiciones(context) {
+  console.log('Scraping IVAM (Institut Valencià d’Art Modern)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+
+  const months = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
+  const events = [];
+
+  try {
+    const res = await context.request.get('https://www.ivam.es/es/exposiciones/', {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      timeout: 20000,
+    });
+
+    if (!res.ok()) {
+      console.warn('IVAM request status: ' + res.status());
+      return [];
+    }
+
+    const html = await res.text();
+    const cards = html.split(/class="[^"]*ivam-post-card\b/i).slice(1);
+
+    for (const card of cards) {
+      const titleM = card.match(/class="ivam-post-card__title">([\s\S]*?)<\/h3>/i);
+      const linkM = card.match(/href="(https:\/\/ivam\.es\/es\/exposiciones\/[^"]+)"/i);
+      const imgM = card.match(/class="ivam-post-card__img"[^>]*src="([^"]+)"/i);
+      const dateM = card.match(/<p class="date">([\s\S]*?)<\/p>/i);
+      const venueM = card.match(/<span>(IVAM[^<]*)<\/span>/i);
+
+      if (!titleM || !linkM) continue;
+      const title = toNaturalCase(titleM[1].replace(/<[^>]+>/g, '').trim());
+      const link = linkM[1];
+      const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.exposicions;
+      const dateRaw = dateM ? dateM[1].replace(/<[^>]+>/g, '').trim() : '';
+      const venue = venueM ? venueM[1].trim() : 'IVAM Centre Julio González';
+
+      const dateParts = dateRaw.split(/\s*[-–—]\s*/);
+      const parseDate = (str) => {
+        const m = str.match(/(\d{1,2})\s+([a-zçà-ú]{3,4})\.?\s+(\d{4})/i);
+        if (!m) return null;
+        const day = parseInt(m[1], 10);
+        const monKey = m[2].toLowerCase().slice(0, 3);
+        const mon = months[monKey];
+        const yr = parseInt(m[3], 10);
+        if (!mon || !yr) return null;
+        return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      };
+
+      const startIso = parseDate(dateParts[0]);
+      const endIso = dateParts[1] ? parseDate(dateParts[1]) : undefined;
+
+      if (!startIso) continue;
+      const effectiveEnd = endIso || startIso;
+      if (effectiveEnd < todayStr) continue;
+      if (startIso > cutoffStr) continue;
+
+      const slug = link.replace(/.*\/exposiciones\/([^/]+)\/?$/, '$1') || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+      events.push({
+        id: `ivam-expo-${slug}`,
+        title,
+        description: `Exposición oficial en el Institut Valencià d’Art Modern (IVAM). ${dateRaw}`,
+        category: 'exposicions',
+        startDate: `${startIso}T10:00:00.000Z`,
+        endDate: endIso ? `${endIso}T20:00:00.000Z` : undefined,
+        venueName: venue,
+        address: 'Guillem de Castro, 118, 46003 València',
+        imageUrl: img,
+        isFree: false,
+        ticketPrice: '5 €',
+        ticketUrl: link,
+        url: link,
+        source: 'ivam',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`IVAM scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official IVAM exhibitions.`);
+  return events;
+}
+
+// 2d. Museum Anchor: Museu de Belles Arts de València (MuBAV)
+async function scrapeMubavExposiciones(context) {
+  console.log('Scraping MuBAV (Museu de Belles Arts de València)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+  const events = [];
+
+  try {
+    const res = await context.request.get('https://museobellasartesvalencia.gva.es/es/exposiciones', {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      timeout: 20000,
+    });
+
+    if (!res.ok()) {
+      console.warn('MuBAV request status: ' + res.status());
+      return [];
+    }
+
+    const html = await res.text();
+    const actualBlock = html.split('Exposiciones actuales')[1]?.split('Exposiciones pasadas')[0] || '';
+    const items = actualBlock.split(/class="[^"]*asset-item\b/i).slice(1);
+
+    for (const it of items) {
+      const titleM = it.match(/class="[^"]*asset-title[^"]*"[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+      const dateM = it.match(/class="[^"]*asset-summary[^"]*"[^>]*>[\s\S]*?<p>([\s\S]*?)<\/p>/i);
+      const imgM = it.match(/style=['"]background-image:url\(([^)]+)\)['"]/i);
+
+      if (!titleM) continue;
+      const link = titleM[1].replace(/&amp;/g, '&');
+      const title = toNaturalCase(titleM[2].replace(/<[^>]+>/g, '').trim());
+      const dateText = dateM ? dateM[1].replace(/<[^>]+>/g, '').trim() : '';
+      const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.exposicions;
+
+      const mDel = dateText.match(/(\d{1,2})[./](\d{1,2})[./](\d{4})\s+(?:al|a|-)\s+(\d{1,2})[./](\d{1,2})[./](\d{4})/i);
+      let sIso = null;
+      let eIso = null;
+      if (mDel) {
+        sIso = `${mDel[3]}-${mDel[2].padStart(2, '0')}-${mDel[1].padStart(2, '0')}`;
+        eIso = `${mDel[6]}-${mDel[5].padStart(2, '0')}-${mDel[4].padStart(2, '0')}`;
+      }
+
+      if (!sIso) continue;
+      const effectiveEnd = eIso || sIso;
+      if (effectiveEnd < todayStr) continue;
+      if (sIso > cutoffStr) continue;
+
+      events.push({
+        id: `mubav-expo-${normalizeKey(title).slice(0, 30)}-${sIso}`,
+        title,
+        description: `Exposición en el Museu de Belles Arts de València (San Pío V). ${dateText}`,
+        category: 'exposicions',
+        startDate: `${sIso}T10:00:00.000Z`,
+        endDate: eIso ? `${eIso}T20:00:00.000Z` : undefined,
+        venueName: 'Museu de Belles Arts de València (MuBAV)',
+        address: 'Carrer de Sant Pius V, 9, 46010 València',
+        imageUrl: img,
+        isFree: true,
+        ticketPrice: undefined,
+        ticketUrl: link,
+        url: link,
+        source: 'mubav',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`MuBAV scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official MuBAV exhibitions.`);
+  return events;
+}
+
+// 2e. Performing Arts Anchor: Teatre Talia & Teatre Olympia (Olympia Metropolitana)
+async function scrapeTaliaCartelera(context) {
+  console.log('Scraping Teatre Talia & Teatre Olympia (Olympia Metropolitana)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+  const months = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
+  const events = [];
+
+  try {
+    const res = await context.request.get('https://www.teatretalia.es/cartelera', {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      timeout: 20000,
+    });
+
+    if (!res.ok()) {
+      console.warn('Teatre Talia request status: ' + res.status());
+      return [];
+    }
+
+    const html = await res.text();
+    const cards = html.split(/class="[^"]*inner[^"]*"/i).slice(1);
+
+    for (const card of cards) {
+      const titleM = card.match(/<h3[^>]*class="widget-title"[^>]*><a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h3>/i);
+      const dateM = card.match(/<h6[^>]*>([\s\S]*?)<\/h6>/i);
+      const imgM = card.match(/<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"/i);
+
+      if (!titleM) continue;
+      const rawHref = titleM[1];
+      const link = rawHref.startsWith('http') ? rawHref : `https://www.teatretalia.es${rawHref}`;
+      const title = toNaturalCase(titleM[2].replace(/<[^>]+>/g, '').trim());
+      const dateText = dateM ? dateM[1].replace(/<[^>]+>/g, '').trim() : '';
+      const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.teatre;
+
+      let sIso = null;
+      let eIso = null;
+
+      const mHasta = dateText.match(/(?:hasta\s+el\s+|al\s+)?(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\s*(\d{4})?/i);
+      const mDel = dateText.match(/del\s+(\d{1,2})\s+al\s+(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\s*(\d{4})?/i);
+
+      if (mDel) {
+        const sDay = parseInt(mDel[1], 10);
+        const eDay = parseInt(mDel[2], 10);
+        const mon = months[mDel[3].toLowerCase().slice(0, 3)];
+        const yr = mDel[4] ? parseInt(mDel[4], 10) : now.getFullYear();
+        if (mon) {
+          sIso = `${yr}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
+          eIso = `${yr}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
+        }
+      } else if (mHasta) {
+        const day = parseInt(mHasta[1], 10);
+        const mon = months[mHasta[2].toLowerCase().slice(0, 3)];
+        const yr = mHasta[3] ? parseInt(mHasta[3], 10) : now.getFullYear();
+        if (mon) {
+          const target = `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          if (target >= todayStr) {
+            sIso = todayStr;
+            eIso = target;
+          }
+        }
+      }
+
+      if (!sIso) continue;
+      const effectiveEnd = eIso || sIso;
+      if (effectiveEnd < todayStr) continue;
+      if (sIso > cutoffStr) continue;
+
+      events.push({
+        id: `talia-${normalizeKey(title).slice(0, 30)}-${sIso}`,
+        title,
+        description: `Espectáculo en cartelera en el Teatre Talia. ${dateText}`,
+        category: 'teatre',
+        startDate: `${sIso}T19:00:00.000Z`,
+        endDate: eIso ? `${eIso}T21:00:00.000Z` : undefined,
+        venueName: 'Teatre Talia',
+        address: 'Carrer dels Cavallers, 31, 46001 València',
+        imageUrl: img,
+        isFree: false,
+        ticketPrice: undefined,
+        ticketUrl: link,
+        url: link,
+        source: 'talia',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`Teatre Talia scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official Talia shows.`);
+  return events;
+}
+
+// 2f. Municipal Theaters: La Mutant & TEM (Ajuntament de València)
+async function scrapeLaMutant(context) {
+  console.log('Scraping La Mutant (Teatre Municipal)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+  const events = [];
+
+  try {
+    const res = await context.request.get('https://lamutant.com/programacio/', {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      timeout: 20000,
+    });
+
+    if (!res.ok()) {
+      console.warn('La Mutant request status: ' + res.status());
+      return [];
+    }
+
+    const html = await res.text();
+    const items = html.split(/class=['"][^'"]*av-masonry-entry\b/i).slice(1);
+
+    for (const it of items) {
+      const titleM = it.match(/title=['"]([^'"]+)['"]/i);
+      const linkM = it.match(/data-av-masonry-custom-link=['"]([^'"]+)['"]/i) || it.match(/href=['"](https:\/\/www\.lamutant\.com\/[^'"]+)['"]/i);
+      const imgM = it.match(/<img[^>]*src=['"]([^'"]+)['"]/i);
+
+      if (!titleM || !linkM) continue;
+      const rawTitle = titleM[1].replace(/&#8217;/g, '’').replace(/&amp;/g, '&').trim();
+      const title = toNaturalCase(rawTitle);
+      const link = linkM[1];
+      const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.teatre;
+
+      events.push({
+        id: `mutant-${normalizeKey(title).slice(0, 30)}-${Date.now()}`,
+        title,
+        description: 'Programación oficial en La Mutant (Espacio de Artes Vivas de València)',
+        category: 'teatre',
+        startDate: `${todayStr}T19:00:00.000Z`,
+        venueName: 'La Mutant',
+        address: 'Carrer de Joan Verdaguer, 22, 46024 València',
+        imageUrl: img,
+        isFree: false,
+        ticketUrl: link,
+        url: link,
+        source: 'lamutant',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`La Mutant scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official La Mutant events.`);
   return events;
 }
 
@@ -839,6 +1314,8 @@ async function scrapeFdmValencia(page, context) {
         isFree: false,
         ticketUrl: item.url,
         url: item.url,
+        source: 'fdm',
+        authority: 1,
       });
     }
   } catch (err) {
@@ -956,6 +1433,8 @@ async function scrapeValenciaBasket(page) {
         isFree: false,
         ticketUrl: CALENDAR_URL,
         url: CALENDAR_URL,
+        source: 'vbc',
+        authority: 1,
       });
     }
   } catch (err) {
@@ -1065,6 +1544,8 @@ async function scrapeValenciaCF(page, context) {
           isFree: false,
           ticketUrl: m.link,
           url: m.link,
+          source: 'vcf',
+          authority: 1,
         });
       }
     } catch (err) {
@@ -1134,14 +1615,11 @@ async function scrapeLevanteUD(page, context) {
         } catch (_) {}
       }
 
-      // Priority 1: Exact SportsEvent.startDate from JSON-LD on detail page (avoids offers.validFrom on-sale timestamp!)
       let iso = detailData?.startDate;
 
-      // Priority 2: Reconcile date from detail HTML text or raw card text
       if (!iso) {
         iso = extractDateFromAnyText(detailHtml) || extractDateFromAnyText(m.rawText);
       } else {
-        // Reconcile if JSON-LD date differs from text description in HTML
         iso = reconcileDateWithText(iso, detailHtml || m.rawText);
       }
 
@@ -1164,7 +1642,6 @@ async function scrapeLevanteUD(page, context) {
         ? 'Camino del Oliveral, s/n, 46360 Buñol, València'
         : 'Carrer de Sant Vicent de Paül, 44, 46019 València';
 
-      // Detect competition cleanly from URL & detail text rather than hardcoding
       const lowerCombo = (m.href + ' ' + m.rawText + ' ' + detailHtml).toLowerCase();
       let competition = 'LaLiga EA Sports';
       if (isWomen) {
@@ -1195,7 +1672,6 @@ async function scrapeLevanteUD(page, context) {
 
       const fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
 
-      // Filter out away matches
       if (isAwayMatch(fullTitle, venueName)) continue;
 
       events.push({
@@ -1210,6 +1686,8 @@ async function scrapeLevanteUD(page, context) {
         isFree: false,
         ticketUrl: m.href,
         url: m.href,
+        source: 'lud',
+        authority: 1,
       });
     }
   } catch (err) {
@@ -1245,6 +1723,41 @@ async function main() {
     auEvents = await scrapeAuAgenda(context);
   } catch (e) {
     console.error('AU Agenda error:', e.message);
+  }
+
+  let ivcEvents = [];
+  try {
+    ivcEvents = await scrapeIvcOpenData(context);
+  } catch (e) {
+    console.error('IVC Open Data error:', e.message);
+  }
+
+  let ivamEvents = [];
+  try {
+    ivamEvents = await scrapeIvamExposiciones(context);
+  } catch (e) {
+    console.error('IVAM error:', e.message);
+  }
+
+  let mubavEvents = [];
+  try {
+    mubavEvents = await scrapeMubavExposiciones(context);
+  } catch (e) {
+    console.error('MuBAV error:', e.message);
+  }
+
+  let taliaEvents = [];
+  try {
+    taliaEvents = await scrapeTaliaCartelera(context);
+  } catch (e) {
+    console.error('Teatre Talia error:', e.message);
+  }
+
+  let mutantEvents = [];
+  try {
+    mutantEvents = await scrapeLaMutant(context);
+  } catch (e) {
+    console.error('La Mutant error:', e.message);
   }
 
   let fdmEvents = [];
@@ -1285,12 +1798,18 @@ async function main() {
 
   await browser.close();
 
+  // Combine all sources: Authoritative institutional feeds + AU Agenda
   const combined = [
     ...fdmEvents,
     ...vbcEvents,
     ...vcfEvents,
     ...ludEvents,
     ...musicEvents,
+    ...ivcEvents,
+    ...ivamEvents,
+    ...mubavEvents,
+    ...taliaEvents,
+    ...mutantEvents,
     ...auEvents,
   ];
 
@@ -1331,7 +1850,10 @@ async function main() {
     return true;
   });
 
-  const seen = new Map();
+  // ID Deduplicator & Source Authority Pipeline:
+  // If an event from an authoritative institutional venue or Open Data exists (IVC, IVAM, MuBAV, Talia, La Mutant),
+  // drop the lower-quality AU Agenda clone (authority: 2).
+  const dedupeGroups = new Map();
   for (const ev of processed) {
     const cleanTitle = (ev.title || '').trim();
     if (
@@ -1340,8 +1862,32 @@ async function main() {
     ) {
       continue;
     }
-    const key = `${cleanTitle.toLowerCase()}_${(ev.startDate || '').slice(0, 10)}`;
-    if (!seen.has(key)) seen.set(key, ev);
+    // Group by category + normalized title + month (YYYY-MM)
+    const monthKey = (ev.startDate || '').slice(0, 7);
+    const groupKey = `${ev.category}::${normalizeKey(cleanTitle)}::${monthKey}`;
+
+    if (!dedupeGroups.has(groupKey)) {
+      dedupeGroups.set(groupKey, []);
+    }
+    dedupeGroups.get(groupKey).push(ev);
+  }
+
+  const seen = new Map();
+  for (const [_, items] of dedupeGroups.entries()) {
+    // Sort by authority asc: 1 (official institutional / open data) wins over 2 (AU Agenda aggregator)
+    items.sort((a, b) => (a.authority || 2) - (b.authority || 2));
+    const best = items[0];
+
+    // If an authoritative event lacks a real image but the AU clone has a valid image, enrich it
+    if (items.length > 1) {
+      const withImg = items.find((x) => x.imageUrl && !Object.values(CULTURAL_FALLBACKS).includes(x.imageUrl));
+      if (withImg && (!best.imageUrl || Object.values(CULTURAL_FALLBACKS).includes(best.imageUrl))) {
+        best.imageUrl = withImg.imageUrl;
+      }
+    }
+
+    const exactKey = `${best.title.toLowerCase()}_${(best.startDate || '').slice(0, 10)}`;
+    if (!seen.has(exactKey)) seen.set(exactKey, best);
   }
 
   const finalEvents = Array.from(seen.values()).sort(
