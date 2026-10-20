@@ -1085,11 +1085,11 @@ async function scrapeIvamExposiciones(page, context) {
   try {
     let html = '';
     if (page) {
-      await page.goto('https://www.ivam.es/es/exposiciones/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto('https://ivam.es/es/exposiciones/', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForTimeout(2000);
       html = await page.content();
     } else if (context) {
-      const res = await context.request.get('https://www.ivam.es/es/exposiciones/', {
+      const res = await context.request.get('https://ivam.es/es/exposiciones/', {
         headers: {
           'Accept': 'text/html,application/xhtml+xml',
           'User-Agent':
@@ -1135,7 +1135,7 @@ async function scrapeIvamExposiciones(page, context) {
           return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         };
 
-        const dateParts = dateRaw.split(/\s*-\s*|\s+a\s+/i);
+        const dateParts = dateRaw.split(/\s*[\-–—\u2013\u2014]\s*|\s+a\s+/i);
         const startIso = parseDate(dateParts[0], endYearFallback);
         const endIso = dateParts[1] ? parseDate(dateParts[1], endYearFallback) : undefined;
 
