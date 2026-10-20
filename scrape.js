@@ -18,7 +18,7 @@ const KNOWN_VENUES = [
   { pattern: /reina 121/i, name: 'Espai La Reina 121', address: 'Carrer de la Reina, 121, 46011 València' },
   { pattern: /bombas gens/i, name: 'Bombas Gens Centre d’Arts Digitals', address: 'Avinguda de Burjassot, 54, 46009 València' },
   { pattern: /caixaforum/i, name: 'CaixaForum València', address: 'Carrer d’Eduardo Primo Yúfera, 1A, 46013 València' },
-  { pattern: /la нау/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
+  { pattern: /la nau/i, name: 'La Nau Centre Cultural', address: 'Carrer de la Universitat, 2, 46003 València' },
   { pattern: /muvim/i, name: 'MuVIM', address: 'Carrer de Quevedo, 10, 46001 València' },
   { pattern: /bot[aà]nic/i, name: 'Jardí Botànic UV', address: 'Carrer de Quart, 80, 46008 València' },
   { pattern: /drassanes/i, name: 'Drassanes del Grau', address: 'Plaça de Joan Pau II, 46024 València' },
@@ -490,7 +490,6 @@ async function scrapeAuAgenda(context) {
 
   let rawEvents = [];
 
-  // Attempt 1: Fast direct API query to AU Live public REST endpoint
   try {
     const res = await context.request.get('https://www.au-agenda.com/api/eventos', {
       headers: {
@@ -510,7 +509,6 @@ async function scrapeAuAgenda(context) {
     console.warn(`AU Live direct API notice: ${err.message}. Trying browser fallback...`);
   }
 
-  // Attempt 2: Headless browser fallback if direct API request failed
   if (rawEvents.length === 0) {
     try {
       const page = await context.newPage();
@@ -541,7 +539,6 @@ async function scrapeAuAgenda(context) {
     return [];
   }
 
-  // Filter only target categories: esceniques and exposicions (plus inauguracio-expo)
   const targetEvents = rawEvents.filter((e) => {
     const cat = (e.category || '').toLowerCase();
     return cat === 'esceniques' || cat === 'exposicions' || cat === 'inauguracio-expo';
@@ -549,11 +546,9 @@ async function scrapeAuAgenda(context) {
 
   console.log(`AU Live fetched ${targetEvents.length} raw cultural items across Escénicas and Exposiciones.`);
 
-  // Group / Fold multi-day schedule instances into single cohesive event entities
   const grouped = new Map();
   for (const ev of targetEvents) {
     const cat = ev.category === 'inauguracio-expo' ? 'exposicions' : ev.category;
-    // Strip trailing date "-YYYY-MM-DD" from slug to group recurring days into the root show
     const baseSlug = (ev.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '') || ev.title.toLowerCase().trim();
     const venueNorm = (ev.venue || '').toLowerCase().trim();
     const groupKey = `${cat}::${venueNorm}::${baseSlug}`;
@@ -567,7 +562,6 @@ async function scrapeAuAgenda(context) {
   const events = [];
 
   for (const [_, items] of grouped.entries()) {
-    // Sort all day slots chronologically
     items.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
     const first = items[0];
     const last = items[items.length - 1];
@@ -575,7 +569,6 @@ async function scrapeAuAgenda(context) {
     let startDateStr = first.startDate;
     let endDateStr = items.length > 1 && last.startDate !== first.startDate ? last.startDate : undefined;
 
-    // Parse dateLabel if startDate is omitted in AU Live editorial items
     if (!startDateStr && first.dateLabel) {
       const mRange = first.dateLabel.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
       const mHasta = first.dateLabel.match(/(?:hasta\s+el\s+|al\s+)?(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
@@ -588,7 +581,7 @@ async function scrapeAuAgenda(context) {
         const curYear = now.getFullYear();
         if (sDay && eDay && mon) {
           const eIso = `${curYear}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
-          if (eIso < todayStr) continue; // Past expired
+          if (eIso < todayStr) continue;
           startDateStr = `${curYear}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
           endDateStr = eIso;
         }
@@ -603,7 +596,7 @@ async function scrapeAuAgenda(context) {
             startDateStr = todayStr;
             endDateStr = targetIso;
           } else {
-            continue; // Past expired
+            continue;
           }
         }
       }
@@ -615,17 +608,14 @@ async function scrapeAuAgenda(context) {
 
     const effectiveEnd = endDateStr || startDateStr;
 
-    // Condition 1: The event hasn't finished (never display past events)
     if (effectiveEnd < todayStr) {
       continue;
     }
 
-    // Condition 2: Active in the upcoming 30 days (startDate <= today + 30 days and effectiveEnd >= today)
     if (startDateStr > cutoffStr) {
       continue;
     }
 
-    // Recover valid image from any instance in the folded series
     const validImg = items.find(
       (x) => x.imageUrl && typeof x.imageUrl === 'string' && x.imageUrl.startsWith('http') && isValidDetailImg(x.imageUrl)
     )?.imageUrl;
@@ -633,7 +623,6 @@ async function scrapeAuAgenda(context) {
     const appCategory = first.category === 'esceniques' ? 'teatre' : 'exposicions';
     const fallbackImg = appCategory === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions;
 
-    // Resolve venue & address through canonical registry
     let venueName = first.venue || 'València';
     let address = `${venueName}, València`;
 
@@ -650,11 +639,9 @@ async function scrapeAuAgenda(context) {
       ? first.description.slice(0, 220).replace(/\s+/g, ' ').trim()
       : `${appCategory === 'teatre' ? 'Artes escénicas' : 'Exposición'} en ${venueName}`;
 
-    // Clean price
     const isFree = first.price === 'Gratis' || first.price === 'Gratuito' || first.priceFrom === 0;
     const ticketPrice = first.price && !isFree ? first.price : undefined;
 
-    // Canonical link
     const baseSlug = (first.slug || '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
     const rawLink = (first.sourceUrl || '').trim();
     const finalEventUrl = rawLink && rawLink !== '#' ? rawLink : `https://au-agenda.com/evento/${first.slug || baseSlug}/`;
@@ -683,7 +670,6 @@ async function scrapeAuAgenda(context) {
 }
 
 // 2b. Official Institutional Open Data: Institut Valencià de Cultura (IVC)
-// Programmed activities for Teatre Principal de València, Teatre Rialto, and Les Arts
 async function scrapeIvcOpenData(context) {
   console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
   const now = new Date();
@@ -1815,45 +1801,47 @@ async function main() {
 
   console.log(`Total events consolidated before validation: ${combined.length}`);
 
-  const processed = combined.map((ev) => {
-    let startDate = (ev.startDate || '').trim();
-    let endDate = (ev.endDate || '').trim();
-    let venueName = ev.venueName;
-    let address = ev.address;
-    let description = ev.description;
+  const processed = combined
+    .map((ev) => {
+      let startDate = (ev.startDate || '').trim();
+      let endDate = (ev.endDate || '').trim();
+      let venueName = ev.venueName;
+      let address = ev.address;
+      let description = ev.description;
 
-    const normKey = normalizeKey(ev.title);
+      const normKey = normalizeKey(ev.title);
 
-    // Apply Verified Fixtures Safety Registry Override
-    if (VERIFIED_FIXTURES[normKey]) {
-      const fix = VERIFIED_FIXTURES[normKey];
-      startDate = fix.startDate;
-      if (fix.endDate) endDate = fix.endDate;
-      if (fix.venueName) venueName = fix.venueName;
-      if (fix.address) address = fix.address;
-      if (fix.description) description = fix.description;
-    }
+      // Apply Verified Fixtures Safety Registry Override
+      if (VERIFIED_FIXTURES[normKey]) {
+        const fix = VERIFIED_FIXTURES[normKey];
+        startDate = fix.startDate;
+        if (fix.endDate) endDate = fix.endDate;
+        if (fix.venueName) venueName = fix.venueName;
+        if (fix.address) address = fix.address;
+        if (fix.description) description = fix.description;
+      }
 
-    return {
-      ...ev,
-      startDate,
-      endDate: endDate || undefined,
-      venueName,
-      address,
-      description,
-    };
-  }).filter((ev) => {
-    // Drop away matches
-    if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName)) {
-      return false;
-    }
-    return true;
-  });
+      return {
+        ...ev,
+        startDate,
+        endDate: endDate || undefined,
+        venueName,
+        address,
+        description,
+      };
+    })
+    .filter((ev) => {
+      // Drop away matches
+      if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName)) {
+        return false;
+      }
+      return true;
+    });
 
-  // Multi-Source Deduplication & Enrichment Pipeline:
+  // Multi-Source Deduplication & Multi-Date Run Consolidation Pipeline:
   // Detects and unifies duplicate events from AU Agenda, official portals (Olympia, Talia, IVC, MuBAV, IVAM),
   // ticketing providers, and open data feeds based on date overlap, venue matching, title containment,
-  // keyword overlap, and ticket URL slug matching.
+  // keyword overlap, ticket URL slug matching, and multi-performance theater run windows.
   function cleanVenueForMatching(venue) {
     if (!venue) return '';
     let v = stripAccents(venue).toLowerCase();
@@ -1929,6 +1917,26 @@ async function main() {
     return c1 || c2 || '';
   }
 
+  function datesOverlapOrNearby(startA, endA, startB, endB) {
+    if (!startA || !startB) return false;
+    const sA = new Date(startA).getTime();
+    const eA = endA ? new Date(endA).getTime() : sA;
+    const sB = new Date(startB).getTime();
+    const eB = endB ? new Date(endB).getTime() : sB;
+
+    if (isNaN(sA) || isNaN(sB)) return false;
+
+    if (startA.slice(0, 10) === startB.slice(0, 10)) return true;
+
+    if (sB >= sA && sB <= eA) return true;
+    if (sA >= sB && sA <= eB) return true;
+
+    const SixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+    if (Math.abs(sA - sB) <= SixtyDaysMs) return true;
+
+    return false;
+  }
+
   function areEventsDuplicates(e1, e2) {
     if (e1.category !== e2.category) return false;
 
@@ -1939,65 +1947,22 @@ async function main() {
       );
     }
 
-    const d1 = (e1.startDate || '').slice(0, 10);
-    const d2 = (e2.startDate || '').slice(0, 10);
-    if (!d1 || !d2) return false;
-    const sameDay = d1 === d2;
-
-    let datesOverlap = sameDay;
-    if (e1.category === 'exposicions') {
-      const end1 = (e1.endDate || e1.startDate || '').slice(0, 10);
-      const end2 = (e2.endDate || e2.startDate || '').slice(0, 10);
-      datesOverlap = d1 <= end2 && end1 >= d2;
-    }
-    if (!datesOverlap) return false;
-
-    const t1 = cleanTitleForComparison(e1.title);
-    const t2 = cleanTitleForComparison(e2.title);
-
-    if (t1 === t2 && sameDay) return true;
-
     const v1 = cleanVenueForMatching(e1.venueName);
     const v2 = cleanVenueForMatching(e2.venueName);
     const sameVenue = Boolean(v1 && v2 && (v1 === v2 || v1.includes(v2) || v2.includes(v1)));
 
+    const t1 = cleanTitleForComparison(e1.title);
+    const t2 = cleanTitleForComparison(e2.title);
+    const titleMatch = t1 === t2 || (t1.length >= 5 && t2.length >= 5 && (t1.includes(t2) || t2.includes(t1)));
+
     const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
     const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
-    if (slug1 && slug2) {
-      if (slug1 === slug2 || slug1.includes(slug2) || slug2.includes(slug1)) {
-        if (sameDay || datesOverlap) return true;
-      }
-    }
+    const slugMatch = Boolean(slug1 && slug2 && (slug1 === slug2 || slug1.includes(slug2) || slug2.includes(slug1)));
 
-    if (sameDay && sameVenue) {
-      if (t1.includes(t2) || t2.includes(t1)) {
-        const shorter = t1.length < t2.length ? t1 : t2;
-        if (shorter.length >= 6) return true;
-      }
+    const datesMatch = datesOverlapOrNearby(e1.startDate, e1.endDate, e2.startDate, e2.endDate);
 
-      const kw1 = extractSignificantKeywords(e1.title);
-      const kw2 = extractSignificantKeywords(e2.title);
-      if (kw1.length > 0 && kw2.length > 0) {
-        const set2 = new Set(kw2);
-        const common = kw1.filter((k) => set2.has(k));
-        const overlapRatio = common.length / Math.min(kw1.length, kw2.length);
-        if (
-          common.length >= 2 ||
-          (overlapRatio === 1.0 && kw1.length >= 1 && kw2.length >= 1 && Math.min(kw1.length, kw2.length) >= 2)
-        ) {
-          return true;
-        }
-        if (common.length === 1 && common[0].length >= 7) {
-          return true;
-        }
-      }
-    }
-
-    if (e1.category === 'musica' && sameDay && (sameVenue || !v1 || !v2)) {
-      if (t1.includes(t2) || t2.includes(t1)) {
-        const shorter = t1.length < t2.length ? t1 : t2;
-        if (shorter.length >= 5) return true;
-      }
+    if (sameVenue && (titleMatch || slugMatch) && datesMatch) {
+      return true;
     }
 
     return false;
@@ -2011,6 +1976,24 @@ async function main() {
     let other = auth1 <= auth2 ? secondary : primary;
 
     base.title = selectBestTitle(base.title, other.title);
+
+    const sA = new Date(base.startDate).getTime();
+    const sB = new Date(other.startDate).getTime();
+    const minStart = !isNaN(sA) && !isNaN(sB) ? (sA <= sB ? base.startDate : other.startDate) : base.startDate;
+
+    const eA = base.endDate ? new Date(base.endDate).getTime() : sA;
+    const eB = other.endDate ? new Date(other.endDate).getTime() : sB;
+    const maxEnd =
+      !isNaN(eA) && !isNaN(eB)
+        ? eA >= eB
+          ? base.endDate || base.startDate
+          : other.endDate || other.startDate
+        : base.endDate || base.startDate;
+
+    base.startDate = minStart;
+    if (maxEnd && maxEnd !== minStart) {
+      base.endDate = maxEnd;
+    }
 
     if (!isDirectTicketingUrl(base.ticketUrl) && isDirectTicketingUrl(other.ticketUrl)) {
       base.ticketUrl = other.ticketUrl;
