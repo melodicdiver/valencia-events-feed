@@ -1850,47 +1850,235 @@ async function main() {
     return true;
   });
 
-  // ID Deduplicator & Source Authority Pipeline:
-  // If an event from an authoritative institutional venue or Open Data exists (IVC, IVAM, MuBAV, Talia, La Mutant),
-  // drop the lower-quality AU Agenda clone (authority: 2).
-  const dedupeGroups = new Map();
-  for (const ev of processed) {
-    const cleanTitle = (ev.title || '').trim();
-    if (
-      cleanTitle.length < 4 ||
-      /^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)
-    ) {
-      continue;
-    }
-    // Group by category + normalized title + month (YYYY-MM)
-    const monthKey = (ev.startDate || '').slice(0, 7);
-    const groupKey = `${ev.category}::${normalizeKey(cleanTitle)}::${monthKey}`;
-
-    if (!dedupeGroups.has(groupKey)) {
-      dedupeGroups.set(groupKey, []);
-    }
-    dedupeGroups.get(groupKey).push(ev);
+  // Multi-Source Deduplication & Enrichment Pipeline:
+  // Detects and unifies duplicate events from AU Agenda, official portals (Olympia, Talia, IVC, MuBAV, IVAM),
+  // ticketing providers, and open data feeds based on date overlap, venue matching, title containment,
+  // keyword overlap, and ticket URL slug matching.
+  function cleanVenueForMatching(venue) {
+    if (!venue) return '';
+    let v = stripAccents(venue).toLowerCase();
+    v = v.replace(/^(teatre|teatro|sala|auditori|auditorio|palacio de las artes|palau de les arts|palau de la musica|estadio de|centre|centro)\s+/gi, '');
+    v = v.replace(/\b(valencia|valència)\b/gi, '');
+    return v.trim();
   }
 
-  const seen = new Map();
-  for (const [_, items] of dedupeGroups.entries()) {
-    // Sort by authority asc: 1 (official institutional / open data) wins over 2 (AU Agenda aggregator)
-    items.sort((a, b) => (a.authority || 2) - (b.authority || 2));
-    const best = items[0];
+  function cleanTitleForComparison(title) {
+    if (!title) return '';
+    let t = stripAccents(title).toLowerCase();
+    t = t.replace(/\s+@\s+.*$/, '');
+    t = t.replace(/^(la rialleta|ciclo|cicle|festival|temporada|gira|espectaculo|obra|exposicion|exposicio|concierto|concert):\s*/gi, '');
+    t = t.replace(/[\u2018\u2019\u201C\u201D\x27\x22`´:;–—\-.,?!()[\]{}]/g, ' ');
+    return t.replace(/\s+/g, ' ').trim();
+  }
 
-    // If an authoritative event lacks a real image but the AU clone has a valid image, enrich it
-    if (items.length > 1) {
-      const withImg = items.find((x) => x.imageUrl && !Object.values(CULTURAL_FALLBACKS).includes(x.imageUrl));
-      if (withImg && (!best.imageUrl || Object.values(CULTURAL_FALLBACKS).includes(best.imageUrl))) {
-        best.imageUrl = withImg.imageUrl;
+  const STOPWORDS = new Set([
+    'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
+    'y', 'i', 'en', 'a', 'al', 'per', 'por', 'con', 'show', 'teatre', 'teatro',
+    'valencia', 'valència', 'live', 'tour', 'trio', 'band', 'cia', 'cia.'
+  ]);
+
+  function extractSignificantKeywords(title) {
+    const norm = cleanTitleForComparison(title);
+    return norm.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+  }
+
+  const GENERIC_SLUGS = new Set([
+    'agenda', 'calendario', 'cartelera', 'eventos', 'espectaculos',
+    'entradas', 'home', 'index', 'programacion', 'valencia', 'evento'
+  ]);
+
+  function extractSpecificSlug(url) {
+    if (!url || url === '#') return '';
+    try {
+      const u = new URL(url);
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (!parts.length) return '';
+      let slug = parts[parts.length - 1];
+      if (/^[A-Z0-9_-]{8,}$/.test(slug) && parts.length > 1) {
+        slug = parts[parts.length - 2];
+      }
+      slug = slug.replace(/\.html?$/i, '').replace(/-\d+$/, '').toLowerCase();
+      if (GENERIC_SLUGS.has(slug) || slug.length < 5) return '';
+      return slug;
+    } catch {
+      return '';
+    }
+  }
+
+  function isDirectTicketingUrl(url) {
+    if (!url || url === '#') return false;
+    return (
+      /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com/i.test(url) &&
+      !/au-agenda\.com\/evento/i.test(url)
+    );
+  }
+
+  function cleanTitleDisplay(title) {
+    if (!title) return '';
+    return title.replace(/^La Rialleta:\s*/i, '').trim();
+  }
+
+  function selectBestTitle(t1, t2) {
+    const c1 = cleanTitleDisplay(t1);
+    const c2 = cleanTitleDisplay(t2);
+
+    if (c1.includes(':') && !c2.includes(':')) return c1;
+    if (c2.includes(':') && !c1.includes(':')) return c2;
+
+    if (c2.length > c1.length && c2.length < 75) return c2;
+    return c1 || c2 || '';
+  }
+
+  function areEventsDuplicates(e1, e2) {
+    if (e1.category !== e2.category) return false;
+
+    if (e1.category === 'esports') {
+      return (
+        cleanTitleForComparison(e1.title) === cleanTitleForComparison(e2.title) &&
+        (e1.startDate || '').slice(0, 10) === (e2.startDate || '').slice(0, 10)
+      );
+    }
+
+    const d1 = (e1.startDate || '').slice(0, 10);
+    const d2 = (e2.startDate || '').slice(0, 10);
+    if (!d1 || !d2) return false;
+    const sameDay = d1 === d2;
+
+    let datesOverlap = sameDay;
+    if (e1.category === 'exposicions') {
+      const end1 = (e1.endDate || e1.startDate || '').slice(0, 10);
+      const end2 = (e2.endDate || e2.startDate || '').slice(0, 10);
+      datesOverlap = d1 <= end2 && end1 >= d2;
+    }
+    if (!datesOverlap) return false;
+
+    const t1 = cleanTitleForComparison(e1.title);
+    const t2 = cleanTitleForComparison(e2.title);
+
+    if (t1 === t2 && sameDay) return true;
+
+    const v1 = cleanVenueForMatching(e1.venueName);
+    const v2 = cleanVenueForMatching(e2.venueName);
+    const sameVenue = Boolean(v1 && v2 && (v1 === v2 || v1.includes(v2) || v2.includes(v1)));
+
+    const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
+    const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
+    if (slug1 && slug2) {
+      if (slug1 === slug2 || slug1.includes(slug2) || slug2.includes(slug1)) {
+        if (sameDay || datesOverlap) return true;
       }
     }
 
-    const exactKey = `${best.title.toLowerCase()}_${(best.startDate || '').slice(0, 10)}`;
-    if (!seen.has(exactKey)) seen.set(exactKey, best);
+    if (sameDay && sameVenue) {
+      if (t1.includes(t2) || t2.includes(t1)) {
+        const shorter = t1.length < t2.length ? t1 : t2;
+        if (shorter.length >= 6) return true;
+      }
+
+      const kw1 = extractSignificantKeywords(e1.title);
+      const kw2 = extractSignificantKeywords(e2.title);
+      if (kw1.length > 0 && kw2.length > 0) {
+        const set2 = new Set(kw2);
+        const common = kw1.filter((k) => set2.has(k));
+        const overlapRatio = common.length / Math.min(kw1.length, kw2.length);
+        if (
+          common.length >= 2 ||
+          (overlapRatio === 1.0 && kw1.length >= 1 && kw2.length >= 1 && Math.min(kw1.length, kw2.length) >= 2)
+        ) {
+          return true;
+        }
+        if (common.length === 1 && common[0].length >= 7) {
+          return true;
+        }
+      }
+    }
+
+    if (e1.category === 'musica' && sameDay && (sameVenue || !v1 || !v2)) {
+      if (t1.includes(t2) || t2.includes(t1)) {
+        const shorter = t1.length < t2.length ? t1 : t2;
+        if (shorter.length >= 5) return true;
+      }
+    }
+
+    return false;
   }
 
-  const finalEvents = Array.from(seen.values()).sort(
+  function mergeDuplicateEvents(primary, secondary) {
+    const auth1 = primary.authority || (primary.id && primary.id.startsWith('au-') ? 3 : 2);
+    const auth2 = secondary.authority || (secondary.id && secondary.id.startsWith('au-') ? 3 : 2);
+
+    let base = auth1 <= auth2 ? { ...primary } : { ...secondary };
+    let other = auth1 <= auth2 ? secondary : primary;
+
+    base.title = selectBestTitle(base.title, other.title);
+
+    if (!isDirectTicketingUrl(base.ticketUrl) && isDirectTicketingUrl(other.ticketUrl)) {
+      base.ticketUrl = other.ticketUrl;
+    }
+    if (!isDirectTicketingUrl(base.url) && isDirectTicketingUrl(other.url)) {
+      base.url = other.url;
+    }
+
+    const isGenericImg = (img) =>
+      !img || Object.values(CULTURAL_FALLBACKS).includes(img) || img.includes('fallback') || img.includes('placeholder');
+    if (isGenericImg(base.imageUrl) && !isGenericImg(other.imageUrl)) {
+      base.imageUrl = other.imageUrl;
+    }
+
+    if ((!base.description || base.description.length < 50) && other.description && other.description.length > 50) {
+      base.description = other.description;
+    }
+
+    if (
+      (!base.ticketPrice || base.ticketPrice === '0€' || base.ticketPrice === 'Gratis') &&
+      other.ticketPrice &&
+      other.ticketPrice !== '0€'
+    ) {
+      base.ticketPrice = other.ticketPrice;
+    }
+
+    if (!base.address && other.address) base.address = other.address;
+    if (!base.venueName && other.venueName) base.venueName = other.venueName;
+    if (!base.coordinates && other.coordinates) base.coordinates = other.coordinates;
+
+    return base;
+  }
+
+  function deduplicateAndMergeEvents(list) {
+    const mergedList = [];
+    const processedIndices = new Set();
+
+    for (let i = 0; i < list.length; i++) {
+      if (processedIndices.has(i)) continue;
+      let current = list[i];
+
+      for (let j = i + 1; j < list.length; j++) {
+        if (processedIndices.has(j)) continue;
+        const candidate = list[j];
+        if (areEventsDuplicates(current, candidate)) {
+          current = mergeDuplicateEvents(current, candidate);
+          processedIndices.add(j);
+        }
+      }
+
+      mergedList.push(current);
+      processedIndices.add(i);
+    }
+
+    return mergedList;
+  }
+
+  const validEvents = processed.filter((ev) => {
+    const cleanTitle = (ev.title || '').trim();
+    return (
+      cleanTitle.length >= 4 &&
+      !/^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)
+    );
+  });
+
+  const deduplicated = deduplicateAndMergeEvents(validEvents);
+
+  const finalEvents = deduplicated.sort(
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
   );
 
