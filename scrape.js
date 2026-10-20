@@ -50,6 +50,33 @@ const KNOWN_VENUES = [
   { pattern: /roig arena/i, name: 'Roig Arena', address: 'Carrer del Bomber Ramon Duart, s/n, 46013 València' },
   { pattern: /antonio puchades|paterna|ciutat esportiva del valencia|ciutat esportiva de paterna/i, name: 'Estadio Antonio Puchades', address: 'Ciutat Esportiva de Paterna, Carrer dels Jocs Taronja, 46988 Paterna, València' },
   { pattern: /bu[ñn]ol|ciutat esportiva de bu[ñn]ol|ciudad deportiva de bu[ñn]ol/i, name: 'Ciudad Deportiva de Buñol', address: 'Camino del Oliveral, s/n, 46360 Buñol, València' },
+  { pattern: /teatro carolina/i, name: 'Teatro Carolina', address: 'Carrer de Rugat, 10, 46021 València' },
+  { pattern: /la m[aá]quina/i, name: 'La Máquina', address: 'Carrer del Pare Jofré, 7, 46007 València' },
+  { pattern: /espai ctm/i, name: 'Espai CTM', address: 'Carrer de Pelai, 33, 46007 València' },
+  { pattern: /patio de butacas/i, name: 'Patio de Butacas', address: 'Carrer de la Reina, 219, 46011 València' },
+  { pattern: /artea(?:\s*espai)?/i, name: 'Artea Espai', address: "Carrer de la Vall d'Uixó, 3, 46014 València" },
+  { pattern: /fusionart/i, name: 'Fusionart', address: "Carrer d'Aparisi i Guijarro, 8, 46003 València" },
+  { pattern: /big bang/i, name: 'Big Bang', address: 'Carrer de Botànica Cabanilles, 32, 46010 València' },
+  { pattern: /escalante|nau\s*(?:3\s*)?ribes/i, name: 'Teatre Escalante (Nau Ribes)', address: 'Nau 3 Ribes (Parc Central), Carrer de Filipines, s/n, 46006 València' },
+  { pattern: /l['’]?horta/i, name: 'Sala L’Horta', address: 'Carrer de Sant Martí de Porres, 17, 46017 Castellar-Oliveral, València' },
+  { pattern: /hub cultural(?:\s*cabanyal)?/i, name: 'HUB Cultural Cabanyal', address: 'Carrer de la Reina, 219, 46011 València' },
+  { pattern: /la estrella|petxina|cabanyal/i, name: 'Teatro La Estrella', address: 'Carrer del Dr. Serrano, 21 / Carrer de los Ángeles, 33, València' },
+  { pattern: /matilde salvador/i, name: 'Sala Matilde Salvador (La Nau)', address: 'Carrer de la Universitat, 2, 46003 València' },
+  { pattern: /octubre|\boccc\b/i, name: 'Octubre Centre de Cultura Contemporània (OCCC)', address: 'Carrer de Sant Ferran, 12, 46001 València' },
+  { pattern: /ca revolta/i, name: 'Ca Revolta', address: 'Carrer de Santa Teresa, 10, 46001 València' },
+  { pattern: /batisfera/i, name: 'La Batisfera', address: 'Carrer de la Reina, 167, 46011 València' },
+  { pattern: /kaf caf[eé]/i, name: 'Kaf Café', address: "Carrer d'Arquitecte Arnau, 16, 46020 València" },
+  { pattern: /sporting club(?:\s*russafa)?/i, name: 'Sporting Club Russafa', address: 'Carrer de Sevilla, 5, 46006 València' },
+  { pattern: /auditori.*torrent/i, name: 'L’Auditori de Torrent', address: 'Carrer de Vicent Pallardó, 25, 46900 Torrent, València' },
+  { pattern: /g\.?\s*t\.?\s*alzira|gran teatre.*alzira/i, name: "Gran Teatre d'Alzira", address: 'Plaça de la Lluita Obrera, 46600 Alzira, València' },
+  { pattern: /teatre agr[ií]cola|agr[ií]cola.*alboraia/i, name: 'Teatre Agrícola', address: 'Carrer de Cervantes, 3, 46120 Alboraia, València' },
+  { pattern: /massamagrell/i, name: 'Centre Cultural de Massamagrell', address: 'Passeig del Rei en Jaume, s/n, 46130 Massamagrell, València' },
+  { pattern: /teatreromadesagunt|teatre rom[aà].*sagunt|sagunto/i, name: 'Teatre Romà de Sagunt', address: 'Carrer del Teatre Romà, s/n, 46500 Sagunt, València' },
+  { pattern: /palau de congressos|palacio de congresos|p\.?\s*congresos/i, name: 'Palau de Congressos de València', address: 'Avinguda de les Corts Valencianes, 60, 46015 València' },
+  { pattern: /plazeta/i, name: 'La PlaZeta', address: 'Avinguda dels Germans Machado, 4, 46025 València' },
+  { pattern: /prehist[oò]ria/i, name: 'Museu de Prehistòria de València', address: 'Carrer de la Corona, 36, 46003 València' },
+  { pattern: /cer[aà]mica|dos aig[uü]es/i, name: 'Museu Nacional de Ceràmica', address: 'Carrer del Poeta Querol, 2, 46002 València' },
+  { pattern: /chirivella soriano/i, name: 'Fundación Chirivella Soriano', address: 'Carrer de Valeriola, 13, 46001 València' },
 ];
 
 const MONTH_MAP = {
@@ -90,6 +117,125 @@ const CULTURAL_FALLBACKS = {
   teatre: 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?auto=format&fit=crop&w=800&q=80',
   exposicions: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=800&q=80',
 };
+
+const CDN_SALAS = 'https://cdn.jsdelivr.net/gh/melodicdiver/valencia-events-feed@main/logos_salas';
+
+const VENUE_LOGO_RULES = [
+  // 1. Theatres & Performing Arts
+  { file: 'salas.teatreprincipal_ph.png', regex: /\b(?:teatre|teatro)?\s*principal\b/i },
+  { file: 'salas.teatrerialto_ph.png', regex: /\b(?:teatre|teatro)?\s*rialto\b/i },
+  { file: 'salas.palaudelesartsreinasofia_ph.png', regex: /\b(?:palau\s*de\s*les\s*arts|les\s*arts|^p\.?\s*arts|reina\s*sof[ií]a)\b/i },
+  { file: 'salas.teatrolympia_ph.png', regex: /\b(?:teatre|teatro)?\s*olympia\b/i },
+  { file: 'salas.teatretalia_ph.png', regex: /\b(?:teatre|teatro)?\s*talia\b/i },
+  { file: 'salas.teatreelmusical_ph.png', regex: /\b(?:teatre\s*el\s*musical|\btem\b)/i },
+  { file: 'salas.lamutant_ph.png', regex: /\b(?:la\s*)?mutant\b/i },
+  { file: 'salas.teatremicalet_ph.png', regex: /\b(?:teatre|teatro)?\s*micalet\b/i },
+  { file: 'salas.larambleta_ph.png', regex: /\b(?:la\s*)?rambleta\b/i },
+  { file: 'salas.teatroflumen_ph.png', regex: /\b(?:teatre|teatro)?\s*flumen\b/i },
+  { file: 'salas.sportingclubrussafa_ph.png', regex: /\bsporting\s*club(?:\s*russafa)?\b/i },
+  { file: 'salas.salarussafa_ph.png', regex: /\b(?:sala\s*)?russafa\b/i },
+  { file: 'salas.espacioinestable_ph.png', regex: /\b(?:espacio|espai)\s*inestable\b/i },
+  { file: 'salas.carmeteatre_ph.png', regex: /\bcarme\s*teatre\b/i },
+  { file: 'salas.salaoff_ph.png', regex: /\b(?:sala\s*)?off\b/i },
+  { file: 'salas.teatrocirculo_ph.png', regex: /\b(?:teatre|teatro)?\s*c[ií]rculo\b/i },
+  { file: 'salas.teatrocarolina_ph.png', regex: /\b(?:teatre|teatro)\s*carolina\b/i },
+  { file: 'salas.lamaquina_ph.png', regex: /\b(?:la\s*)?m[aá]quina(?:\s*teatro)?\b/i },
+  { file: 'salas.espaictm_ph.png', regex: /\b(?:espai\s*)?ctm\b/i },
+  { file: 'salas.elpatiodebutacas_ph.png', regex: /\b(?:el\s*)?patio\s*de\s*butacas\b/i },
+  { file: 'salas.arteaespai_ph.png', regex: /\bartea(?:\s*espai)?\b/i },
+  { file: 'salas.fusionart_ph.png', regex: /\bfusionart\b/i },
+  { file: 'salas.bigbangsala_ph.png', regex: /\bbig\s*bang(?:\s*sala)?\b/i },
+  { file: 'salas.teatreescalante_ph.png', regex: /\b(?:escalante|nau\s*(?:3\s*)?ribes)\b/i },
+  { file: 'salas.lhortateatre_ph.png', regex: /\b(?:sala\s*)?l['’]?horta\b/i },
+  { file: 'salas.hubculturalcabanyal_ph.png', regex: /\bhub\s*cultural(?:\s*cabanyal)?\b/i },
+  { file: 'salas.teatrolaestrella_ph.png', regex: /\b(?:teatre|teatro)?\s*la\s*estrella\b|\bsala\s*(?:petxina|cabanyal)\b/i },
+  { file: 'salas.espailagranja_ph.png', regex: /\b(?:espai\s*)?lagranja|la\s*granja\b/i },
+  { file: 'salas.octubreccc_ph.png', regex: /\boctubre\s*(?:ccc|centre)|\boccc\b/i },
+  { file: 'salas.carevolta_ph.png', regex: /\bca\s*revolta\b/i },
+  { file: 'salas.labatisfera_ph.png', regex: /\b(?:la\s*)?batisfera\b/i },
+  { file: 'salas.kafcafe_ph.png', regex: /\bkaf\s*caf[eé]\b/i },
+  { file: 'salas.lauditoridetorrent_ph.png', regex: /\bauditori\s*(?:de\s*)?torrent\b/i },
+  { file: 'salas.granteatredalzira_ph.png', regex: /\b(?:g\.?\s*t\.?\s*alzira|gran\s*teatre.*alzira)\b/i },
+  { file: 'salas.teatreagricolaalboraia_ph.png', regex: /\b(?:teatre|teatro)?\s*agr[ií]cola\b/i },
+  { file: 'salas.centreculturaldemassamagrell_ph.png', regex: /\b(?:centre\s*cultural|cultural)?.*massamagrell\b/i },
+  { file: 'salas.teatreromadesagunt_ph.png', regex: /\b(?:teatre|teatro)?\s*rom[aà].*sagunt|sagunto\b/i },
+  { file: 'salas.palaudecongressosdevalencia_ph.png', regex: /\b(?:palau\s*de\s*congressos|palacio\s*de\s*congresos|p\.?\s*congresos)\b/i },
+  { file: 'salas.laplazeta_ph.png', regex: /\b(?:la\s*)?plazeta\b/i },
+  { file: 'salas.institutvalenciadecultura_ph.png', regex: /\b(?:institut\s*valenci[aà]\s*de\s*cultura|\bivc\b)/i },
+
+  // 2. Museums & Exhibitions
+  { file: 'salas.ivaminstitutvalenciadartmodern_ph.png', regex: /\b(?:ivam|julio\s*gonz[aá]lez)\b/i },
+  { file: 'salas.museudebellesartsdevalencia_ph.png', regex: /\b(?:mubav|belles\s*arts|bellas\s*artes|sant\s*pius\s*v)\b/i },
+  { file: 'salas.centredelcarmecccc_ph.png', regex: /\b(?:cccc|centre\s*del\s*carme)\b/i },
+  { file: 'salas.centredarthortensiaherrerocahh_ph.png', regex: /\b(?:cahh|hortensia\s*herrero)\b/i },
+  { file: 'salas.fundacionbancaja_ph.png', regex: /\b(?:fundaci[oó]\s*)?bancaixa|bancaja\b/i },
+  { file: 'salas.caixaforum_ph.png', regex: /\bcaixaforum\b/i },
+  { file: 'salas.bombasgenscentredartsdigitals_ph.png', regex: /\bbombas\s*gens\b/i },
+  { file: 'salas.muvim_ph.png', regex: /\bmuvim\b/i },
+  { file: 'salas.letnomuseuvalenciadetnologia_ph.png', regex: /\b(?:l['’]?etno|etnologia)\b/i },
+  { file: 'salas.museudeprehistoriadevalencia_ph.png', regex: /\bprehist[oò]ria\b/i },
+  { file: 'salas.museonacionaldeceramica_ph.png', regex: /\b(?:cer[aà]mica|marqu[eé]s\s*de\s*dos\s*aig[uü]es)\b/i },
+  { file: 'salas.lalmodidevalencia_ph.png', regex: /\bl['’]?almod[ií]\b/i },
+  { file: 'salas.drassanesdelgrau_ph.png', regex: /\bdrassanes(?:\s*del\s*grau)?\b/i },
+  { file: 'salas.salamunicipaldexposicions_ph.png', regex: /\bsala\s*municipal(?:\s*d['’]exposicions)?\b/i },
+  { file: 'salas.lanaucentrecultural_ph.png', regex: /\b(?:la\s*nau|nau\s*centre\s*cultural|matilde\s*salvador)\b/i },
+  { file: 'salas.fundacionchirivellasoriano_ph.png', regex: /\bchirivella\s*soriano\b/i },
+  { file: 'salas.ateneomercantildevalencia_ph.png', regex: /\batene[ou]\s*mercantil\b/i },
+  { file: 'salas.collegimajorrectorpreset_ph.png', regex: /\brector\s*peset\b/i },
+  { file: 'salas.jardibotanicuv_ph.png', regex: /\bjard[ií]\s*bot[aà]nic\b/i },
+  { file: 'salas.lareina121_ph.png', regex: /\breina\s*121\b/i },
+  { file: 'salas.lasnaves_ph.png', regex: /\blas\s*naves\b/i },
+
+  // 3. Live Music Clubs & Concert Halls
+  { file: 'salas.16toneladas_ph.png', regex: /\b(?:16\s*toneladas|diecis[eé]is\s*toneladas)\b/i },
+  { file: 'salas.akuarelaplaya_ph.png', regex: /\bakuarela/i },
+  { file: 'salas.barraca_ph.png', regex: /\bbarraca\b/i },
+  { file: 'salas.blacknoteclub_ph.png', regex: /\bblack\s*note/i },
+  { file: 'salas.centroexcursionista_ph.png', regex: /\bcentro\s*excursionista\b/i },
+  { file: 'salas.chocolate_ph.png', regex: /\bchocolate\b/i },
+  { file: 'salas.elvolander_ph.png', regex: /\b(?:el\s*)?volander\b/i },
+  { file: 'salas.jerusalem_ph.png', regex: /\bjerusal[eé][mn]/i },
+  { file: 'salas.la3_ph.png', regex: /\b(?:la\s*3|la3|la\s*tres)(?:\s*club)?\b/i },
+  { file: 'salas.latex_ph.png', regex: /\bl[aá]tex\b/i },
+  { file: 'salas.lococlub_ph.png', regex: /\bloco\s*club\b/i },
+  { file: 'salas.marinabeachclub_ph.png', regex: /\bmarina\s*beach\b/i },
+  { file: 'salas.matisseclub_ph.png', regex: /\bmatisse\b/i },
+  { file: 'salas.moon_ph.png', regex: /\bmoon\b/i },
+  { file: 'salas.myal umbracle_ph.png', regex: /\b(?:mya|umbracle)\b/i },
+  { file: 'salas.palaualameda_ph.png', regex: /\bpalau\s*alameda\b/i },
+  { file: 'salas.peterrockclub_ph.png', regex: /\bpeter\s*rock\b/i },
+  { file: 'salas.piccadilly_ph.png', regex: /\bpiccadilly\b/i },
+  { file: 'salas.radiocity_ph.png', regex: /\bradio\s*city\b/i },
+  { file: 'salas.republicca_ph.png', regex: /\brepv?[bl]+ic+a\b/i },
+  { file: 'salas.rockcity_ph.png', regex: /\brock\s*city\b/i },
+  { file: 'salas.roigarena_ph.png', regex: /\b(?:roig\s*arena|arena\s*roig)\b/i },
+  { file: 'salas.zuluklub_ph.png', regex: /\bzul[uú]/i },
+  { file: 'salas.lamarina_ph.png', regex: /\b(?:la\s*)?marina\s*(?:de\s*val[eè]ncia|nord)?\b/i },
+  { file: 'salas.palaudelamusica_ph.png', regex: /\bpalau\s*de\s*la\s*m[uú]sica\b/i },
+];
+
+function getVenuePlaceholderUrl(venueName, eventTitle, category) {
+  if (!venueName && !eventTitle) return null;
+  const rawCombined = `${venueName || ''} ${eventTitle || ''}`;
+  const normalized = stripAccents(rawCombined).toLowerCase();
+
+  for (const rule of VENUE_LOGO_RULES) {
+    if (rule.regex.test(rawCombined) || rule.regex.test(normalized)) {
+      return `${CDN_SALAS}/${encodeURIComponent(rule.file)}`;
+    }
+  }
+
+  const isMusic =
+    category === 'musica' ||
+    category === 'music' ||
+    /\b(?:concierto|conciertos|live session|live show|en concert|ac[uú]stic[oa])\b/i.test(eventTitle || '');
+  if (isMusic) {
+    return `${CDN_SALAS}/salas.liveshow_ph.png`;
+  }
+
+  return null;
+}
+
 
 /**
  * Verified Sports Fixture Registry (Safety Net Override)
@@ -812,7 +958,7 @@ async function scrapeAuAgenda(context) {
       endDate: endDateStr ? `${endDateStr}T21:00:00.000Z` : undefined,
       venueName: venueName,
       address: address,
-      imageUrl: validImg || fallbackImg,
+      imageUrl: validImg || getVenuePlaceholderUrl(venueName, cleanTitle, appCategory) || fallbackImg,
       isFree: isFree,
       ticketPrice: ticketPrice,
       ticketUrl: finalTicketUrl,
@@ -906,7 +1052,9 @@ async function scrapeIvcOpenData(context) {
         endDate: eIso && eIso !== sIso ? `${eIso}T21:00:00.000Z` : undefined,
         venueName,
         address: address || `${venueName}, València`,
-        imageUrl: category === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions,
+        imageUrl:
+          getVenuePlaceholderUrl(venueName, cleanTitle, category) ||
+          (category === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions),
         isFree,
         ticketPrice: price && !isFree ? price : undefined,
         ticketUrl: link || 'https://ivc.gva.es',
@@ -966,20 +1114,23 @@ async function scrapeIvamExposiciones(context) {
       const dateRaw = dateM ? dateM[1].replace(/<[^>]+>/g, '').trim() : '';
       const venue = venueM ? venueM[1].trim() : 'IVAM Centre Julio González';
 
-      const dateParts = dateRaw.split(/\s*[-–—]\s*/);
-      const parseDate = (str) => {
-        const m = str.match(/(\d{1,2})\s+([a-zçà-ú]{3,4})\.?\s+(\d{4})/i);
+      const rawYears = dateRaw.match(/\b(20\d{2})\b/g) || [];
+      const endYearFallback = rawYears.length > 0 ? parseInt(rawYears[rawYears.length - 1], 10) : now.getFullYear();
+
+      const parseDate = (str, fallbackYr) => {
+        if (!str) return null;
+        const m = str.match(/(\d{1,2})\s+([a-zçà-ú]{3,4})\.?(?:\s+(\d{4}))?/i);
         if (!m) return null;
         const day = parseInt(m[1], 10);
         const monKey = m[2].toLowerCase().slice(0, 3);
         const mon = months[monKey];
-        const yr = parseInt(m[3], 10);
+        const yr = m[3] ? parseInt(m[3], 10) : fallbackYr;
         if (!mon || !yr) return null;
         return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       };
 
-      const startIso = parseDate(dateParts[0]);
-      const endIso = dateParts[1] ? parseDate(dateParts[1]) : undefined;
+      const startIso = parseDate(dateParts[0], endYearFallback);
+      const endIso = dateParts[1] ? parseDate(dateParts[1], endYearFallback) : undefined;
 
       if (!startIso) continue;
       const effectiveEnd = endIso || startIso;
@@ -1008,6 +1159,23 @@ async function scrapeIvamExposiciones(context) {
     }
   } catch (err) {
     console.warn(`IVAM scrape notice: ${err.message}`);
+  }
+
+  // Resilient fallback: If live fetch was blocked or timed out, recover active IVAM exhibitions from disk cache
+  if (events.length === 0) {
+    try {
+      const outPath = path.join(__dirname, 'public', 'events.json');
+      if (fs.existsSync(outPath)) {
+        const existing = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        const cached = existing.filter(
+          (e) => (e.source === 'ivam' || (e.venueName || '').includes('IVAM')) && (e.endDate || e.startDate).slice(0, 10) >= todayStr
+        );
+        if (cached.length > 0) {
+          console.log(`Preserved ${cached.length} active IVAM exhibitions from local events cache.`);
+          return cached;
+        }
+      }
+    } catch (_) {}
   }
 
   console.log(`Ingested ${events.length} official IVAM exhibitions.`);
