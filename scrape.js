@@ -618,7 +618,7 @@ function isCinemaOrMovie(title, desc = '', type = '', cat = '') {
 async function scrapeSongkick(page, context) {
   console.log('Scraping Songkick (Música en español)...');
   const now = new Date();
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   cutoffDate.setUTCHours(23, 59, 59, 999);
   const startFloor = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -741,7 +741,7 @@ async function scrapeAuAgenda(context) {
   console.log('Scraping AU Live (Escénicas & Exposiciones)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
 
   let rawEvents = [];
@@ -843,33 +843,58 @@ async function scrapeAuAgenda(context) {
 
     // Parse dateLabel if startDate is omitted in AU Live editorial items
     if (!startDateStr && first.dateLabel) {
-      const mRange = first.dateLabel.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s+(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
-      const mHasta = first.dateLabel.match(/(?:hasta\s+el\s+|al\s+)?(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*/i);
+      const label = first.dateLabel.trim();
       const monthMap = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
 
+      // 1. Explicit multi-day range: "20 oct - 25 nov" or "15-20 nov"
+      const mRange = label.match(/(\d{1,2})(?:\s+(?:de\s+)?([a-zçà-ú]{3,10}))?(?:\s+(\d{4}))?\s*[-–—]\s*(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
       if (mRange) {
         const sDay = parseInt(mRange[1], 10);
-        const eDay = parseInt(mRange[2], 10);
-        const mon = monthMap[mRange[3].toLowerCase().slice(0, 3)];
-        const curYear = now.getFullYear();
-        if (sDay && eDay && mon) {
-          const eIso = `${curYear}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
-          if (eIso < todayStr) continue; // Past expired
-          startDateStr = `${curYear}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
-          endDateStr = eIso;
+        const eDay = parseInt(mRange[4], 10);
+        const eMon = monthMap[mRange[5].toLowerCase().slice(0, 3)];
+        const eYr = mRange[6] ? parseInt(mRange[6], 10) : now.getFullYear();
+        const sMon = mRange[2] ? monthMap[mRange[2].toLowerCase().slice(0, 3)] : eMon;
+        const sYr = mRange[3] ? parseInt(mRange[3], 10) : (mRange[2] && sMon > eMon ? eYr - 1 : eYr);
+        if (sMon && eMon) {
+          const sIso = `${sYr}-${String(sMon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
+          const eIso = `${eYr}-${String(eMon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
+          if (eIso >= todayStr) {
+            startDateStr = sIso;
+            endDateStr = eIso;
+          }
         }
-      } else if (mHasta) {
-        const day = parseInt(mHasta[1], 10);
-        const mon = monthMap[mHasta[2].toLowerCase().slice(0, 3)];
-        if (day && mon) {
-          let targetYear = now.getFullYear();
-          if (mon < (now.getMonth() + 1)) targetYear += 1;
+      }
+
+      // 2. Explicit "hasta el X de Mes [Año]" (ongoing exhibition ending on X)
+      if (!startDateStr) {
+        const mExplicitHasta = label.match(/^hasta\s+(?:el\s+)?(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
+        if (mExplicitHasta) {
+          const day = parseInt(mExplicitHasta[1], 10);
+          const mon = monthMap[mExplicitHasta[2].toLowerCase().slice(0, 3)];
+          let targetYear = mExplicitHasta[3] ? parseInt(mExplicitHasta[3], 10) : now.getFullYear();
+          if (!mExplicitHasta[3] && mon < (now.getMonth() + 1)) targetYear += 1;
           const targetIso = `${targetYear}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
           if (targetIso >= todayStr) {
             startDateStr = todayStr;
             endDateStr = targetIso;
-          } else {
-            continue; // Past expired
+          }
+        }
+      }
+
+      // 3. Single-day date: "25 oct 2026" or "25 oct"
+      if (!startDateStr) {
+        const mSingle = label.match(/^(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?$/i);
+        if (mSingle) {
+          const day = parseInt(mSingle[1], 10);
+          const mon = monthMap[mSingle[2].toLowerCase().slice(0, 3)];
+          if (day && mon) {
+            let targetYear = mSingle[3] ? parseInt(mSingle[3], 10) : now.getFullYear();
+            if (!mSingle[3] && mon < (now.getMonth() + 1)) targetYear += 1;
+            const targetIso = `${targetYear}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            if (targetIso >= todayStr) {
+              startDateStr = targetIso;
+              endDateStr = undefined;
+            }
           }
         }
       }
@@ -920,13 +945,25 @@ async function scrapeAuAgenda(context) {
     const isFree = first.price === 'Gratis' || first.price === 'Gratuito' || first.priceFrom === 0;
     const ticketPrice = first.price && !isFree ? first.price : undefined;
 
-    // Canonical link resolution:
-    // Working AU Agenda web pages are at /esceniques/${cleanSlug}/ and /exposicions/${cleanSlug}/
+    // Canonical link resolution: Next Available Performance strategy
     const cleanSlug = cleanAuSlug(first.slug) || normalizeKey(first.title).replace(/[^a-z0-9]+/g, '-');
-    const auCategoryPath = appCategory === 'teatre' ? 'esceniques' : 'exposicions';
-    const canonicalAuUrl = `https://au-agenda.com/${auCategoryPath}/${cleanSlug}/`;
 
-    // Direct ticket link priority
+    // Filter upcoming sessions in this folded group
+    const upcomingSessions = items.filter((it) => (it.startDate || '') >= todayStr);
+    let targetSession = upcomingSessions[0] || items[items.length - 1] || first;
+
+    // If target session is today and past evening showtime (>= 21:00) and later sessions exist, advance to next session
+    if (targetSession.startDate === todayStr && upcomingSessions.length > 1) {
+      const currentHour = now.getHours();
+      if (currentHour >= 21) {
+        targetSession = upcomingSessions[1];
+      }
+    }
+
+    const sessionSlug = targetSession.slug || `${cleanSlug}-${targetSession.startDate || todayStr}`;
+    const canonicalAuUrl = `https://www.au-agenda.com/evento/${sessionSlug}`;
+
+    // Direct ticket link priority (e.g. entradas.teatroenvalencia.com, notikumi, box office)
     let directTicketUrl = null;
     for (const it of items) {
       const u = (it.sourceUrl || it.ticketUrl || '').trim();
@@ -936,7 +973,7 @@ async function scrapeAuAgenda(context) {
       }
     }
 
-    // External link (non-AU and non-Facebook)
+    // External link (official venue or promoter site, non-AU and non-Facebook)
     let externalLink = null;
     for (const it of items) {
       const u = (it.sourceUrl || it.url || '').trim();
@@ -947,7 +984,7 @@ async function scrapeAuAgenda(context) {
     }
 
     const finalUrl = externalLink || directTicketUrl || canonicalAuUrl;
-    const finalTicketUrl = directTicketUrl || finalUrl;
+    const finalTicketUrl = directTicketUrl || externalLink || canonicalAuUrl;
 
     events.push({
       id: `au-${appCategory}-${cleanSlug}-${Date.now()}`,
@@ -978,7 +1015,7 @@ async function scrapeIvcOpenData(context) {
   console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
   const events = [];
 
@@ -1076,7 +1113,7 @@ async function scrapeIvamExposiciones(page, context) {
   console.log('Scraping IVAM (Institut Valencià d’Art Modern)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
 
   const months = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
@@ -1195,7 +1232,7 @@ async function scrapeMubavExposiciones(context) {
   console.log('Scraping MuBAV (Museu de Belles Arts de València)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
   const events = [];
 
@@ -1273,7 +1310,7 @@ async function scrapeTaliaCartelera(context) {
   console.log('Scraping Teatre Talia & Teatre Olympia (Olympia Metropolitana)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
   const months = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
   const events = [];
@@ -1311,27 +1348,66 @@ async function scrapeTaliaCartelera(context) {
       let sIso = null;
       let eIso = null;
 
-      const mHasta = dateText.match(/(?:hasta\s+el\s+|al\s+)?(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\s*(\d{4})?/i);
-      const mDel = dateText.match(/del\s+(\d{1,2})\s+al\s+(\d{1,2})\s+(?:de\s+)?(ene|feb|mar|abr|may|jun|jul|ago|sep|set|oct|nov|dic)[a-z]*\s*(\d{4})?/i);
+      const str = dateText.trim();
 
-      if (mDel) {
-        const sDay = parseInt(mDel[1], 10);
-        const eDay = parseInt(mDel[2], 10);
-        const mon = months[mDel[3].toLowerCase().slice(0, 3)];
-        const yr = mDel[4] ? parseInt(mDel[4], 10) : now.getFullYear();
-        if (mon) {
-          sIso = `${yr}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
-          eIso = `${yr}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
+      // 1. Full Range with hyphen/dash: "24 octubre 2026 - 28 mayo 2027", "4 noviembre 2026 - 8 noviembre 2026", "18 diciembre - 19 diciembre 2026"
+      const mDash = str.match(/^(\d{1,2})(?:\s+(?:de\s+)?([a-zçà-ú]{3,10}))?(?:\s+(\d{4}))?\s*[-–—]\s*(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
+      if (mDash) {
+        const sDay = parseInt(mDash[1], 10);
+        const eDay = parseInt(mDash[4], 10);
+        const eMon = months[mDash[5].toLowerCase().slice(0, 3)];
+        const eYr = mDash[6] ? parseInt(mDash[6], 10) : now.getFullYear();
+        const sMon = mDash[2] ? months[mDash[2].toLowerCase().slice(0, 3)] : eMon;
+        const sYr = mDash[3] ? parseInt(mDash[3], 10) : (mDash[2] && sMon > eMon ? eYr - 1 : eYr);
+        if (sMon && eMon) {
+          sIso = `${sYr}-${String(sMon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
+          eIso = `${eYr}-${String(eMon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
         }
-      } else if (mHasta) {
-        const day = parseInt(mHasta[1], 10);
-        const mon = months[mHasta[2].toLowerCase().slice(0, 3)];
-        const yr = mHasta[3] ? parseInt(mHasta[3], 10) : now.getFullYear();
-        if (mon) {
-          const target = `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-          if (target >= todayStr) {
-            sIso = todayStr;
-            eIso = target;
+      }
+
+      // 2. "del X al Y de Mes [Año]"
+      if (!sIso) {
+        const mDel = str.match(/del\s+(\d{1,2})\s+al\s+(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
+        if (mDel) {
+          const sDay = parseInt(mDel[1], 10);
+          const eDay = parseInt(mDel[2], 10);
+          const mon = months[mDel[3].toLowerCase().slice(0, 3)];
+          const yr = mDel[4] ? parseInt(mDel[4], 10) : now.getFullYear();
+          if (mon) {
+            sIso = `${yr}-${String(mon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}`;
+            eIso = `${yr}-${String(mon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}`;
+          }
+        }
+      }
+
+      // 3. Explicit "hasta el X de Mes [Año]" (already running, closing date)
+      if (!sIso) {
+        const mExplicitHasta = str.match(/^hasta\s+(?:el\s+)?(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
+        if (mExplicitHasta) {
+          const day = parseInt(mExplicitHasta[1], 10);
+          const mon = months[mExplicitHasta[2].toLowerCase().slice(0, 3)];
+          const yr = mExplicitHasta[3] ? parseInt(mExplicitHasta[3], 10) : now.getFullYear();
+          if (mon) {
+            const target = `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            if (target >= todayStr) {
+              sIso = todayStr;
+              eIso = target;
+            }
+          }
+        }
+      }
+
+      // 4. Single-day show: "23 octubre 2026", "26 diciembre 2026", "2 enero 2027", "22 diciembre 2026"
+      if (!sIso) {
+        const mSingle = str.match(/^(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?$/i);
+        if (mSingle) {
+          const day = parseInt(mSingle[1], 10);
+          const mon = months[mSingle[2].toLowerCase().slice(0, 3)];
+          let yr = mSingle[3] ? parseInt(mSingle[3], 10) : now.getFullYear();
+          if (!mSingle[3] && mon < (now.getMonth() + 1)) yr += 1;
+          if (mon) {
+            sIso = `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            eIso = undefined;
           }
         }
       }
@@ -1372,7 +1448,7 @@ async function scrapeLaMutant(context) {
   console.log('Scraping La Mutant (Teatre Municipal)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
   const events = [];
 
@@ -1406,14 +1482,25 @@ async function scrapeLaMutant(context) {
       if (isAbono(rawTitle)) continue;
       if (isCinemaOrMovie(rawTitle)) continue;
       const title = toNaturalCase(rawTitle);
-      const img = imgM ? imgM[1] : CULTURAL_FALLBACKS.teatre;
+      const dateMatch = it.match(/(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|[a-zçà-ú]{3,4})(?:\s+(\d{4}))?/i);
+      let sIso = null;
+      if (dateMatch) {
+        const d = parseInt(dateMatch[1], 10);
+        const mKey = dateMatch[2].toLowerCase().slice(0, 3);
+        const mIndex = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 }[mKey];
+        if (mIndex && d) {
+          const yr = dateMatch[3] ? parseInt(dateMatch[3], 10) : now.getFullYear();
+          sIso = `${yr}-${String(mIndex).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+      }
+      if (!sIso || sIso < todayStr || sIso > cutoffStr) continue;
 
       events.push({
-        id: `mutant-${normalizeKey(title).slice(0, 30)}-${Date.now()}`,
+        id: `mutant-${normalizeKey(title).slice(0, 30)}-${sIso}`,
         title,
         description: 'Programación oficial en La Mutant (Espacio de Artes Vivas de València)',
         category: 'teatre',
-        startDate: `${todayStr}T19:00:00.000Z`,
+        startDate: `${sIso}T19:00:00.000Z`,
         venueName: 'La Mutant',
         address: 'Carrer de Joan Verdaguer, 22, 46024 València',
         imageUrl: img,
@@ -1438,7 +1525,7 @@ async function scrapeFdmValencia(page, context) {
   console.log('Scraping FDM València events dynamically...');
   const events = [];
   const now = new Date();
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
   try {
     await page.goto('https://www.fdmvalencia.es/es/eventos/', { 
@@ -1663,7 +1750,7 @@ async function scrapeValenciaBasket(page) {
   const events = [];
   const now = new Date();
   const currentYear = now.getFullYear();
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const CALENDAR_URL = 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home';
 
   try {
@@ -1779,7 +1866,7 @@ async function scrapeValenciaCF(page, context) {
   console.log('Scraping Valencia CF live ticketing...');
   const events = [];
   const now = new Date();
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const URLS = ['https://www.valenciacf.com/tickets', 'https://www.valenciacf.com/entradas'];
 
   for (const url of URLS) {
@@ -1889,7 +1976,7 @@ async function scrapeLevanteUD(page, context) {
   console.log('Scraping Levante UD live ticketing...');
   const events = [];
   const now = new Date();
-  const cutoffDate = new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
   try {
     await page.goto('https://ticketing.levanteud.com', { waitUntil: 'domcontentloaded', timeout: 25000 });
@@ -2371,11 +2458,12 @@ async function main() {
       base.url = other.url;
     }
 
-    // Fix empty or # or broken links
-    if ((!base.ticketUrl || base.ticketUrl === '#' || base.ticketUrl.includes('au-agenda.com/evento/')) && other.ticketUrl && other.ticketUrl !== '#' && !other.ticketUrl.includes('au-agenda.com/evento/')) {
+    // Fix empty, #, or broken AU category/secciones links
+    const isBrokenAuLink = (u) => !u || u === '#' || /au-agenda\.com\/(?:secciones|esceniques|exposicions)\//i.test(u);
+    if (isBrokenAuLink(base.ticketUrl) && other.ticketUrl && !isBrokenAuLink(other.ticketUrl)) {
       base.ticketUrl = other.ticketUrl;
     }
-    if ((!base.url || base.url === '#' || base.url.includes('au-agenda.com/evento/')) && other.url && other.url !== '#' && !other.url.includes('au-agenda.com/evento/')) {
+    if (isBrokenAuLink(base.url) && other.url && !isBrokenAuLink(other.url)) {
       base.url = other.url;
     }
 
