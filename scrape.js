@@ -2290,6 +2290,50 @@ async function main() {
     return true;
   });
 
+  // Ensure verified upcoming sports fixtures (e.g. matchday fixtures whose online ticket sales closed) are retained
+  const nowMs = Date.now();
+  for (const [key, fix] of Object.entries(VERIFIED_FIXTURES)) {
+    if (key === 'levante ud vs atletico madrid' || key === 'valencia cf vs real madrid') continue;
+    const fixtureTime = new Date(fix.startDate).getTime();
+    const isStillActive = fixtureTime + 3 * 60 * 60 * 1000 >= nowMs;
+    if (isStillActive) {
+      const alreadyPresent = processed.some(
+        (e) => normalizeKey(e.title) === key || normalizeKey(e.title).includes(key)
+      );
+      if (!alreadyPresent) {
+        const canonicalTitle = key
+          .split(' vs ')
+          .map((part) =>
+            part
+              .split(' ')
+              .map((w) => (w.toLowerCase() === 'ud' || w.toLowerCase() === 'cf' ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+              .join(' ')
+          )
+          .join(' vs ');
+
+        processed.push({
+          id: `verified-fixture-${key.replace(/[^a-z0-9]+/g, '-')}`,
+          title: canonicalTitle,
+          description: fix.description || `Partido oficial de LaLiga EA Sports en el ${fix.venueName || 'estadio'}`,
+          category: 'esports',
+          startDate: fix.startDate,
+          endDate: fix.endDate,
+          venueName: fix.venueName || 'Estadio Ciutat de València',
+          address: fix.address || 'Carrer de Sant Vicent de Paül, 44, 46019 València',
+          imageUrl: key.includes('levante')
+            ? 'https://static.tickelio.com/images/0/0/1/6/7/0/levante-ud-vs-athletic-club-2.jpeg'
+            : 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=600&q=80',
+          isFree: false,
+          ticketPrice: 'Entradas en taquilla',
+          ticketUrl: key.includes('levante') ? 'https://ticketing.levanteud.com' : 'https://www.valenciacf.com/es/entradas',
+          url: key.includes('levante') ? 'https://ticketing.levanteud.com' : 'https://www.valenciacf.com/es/entradas',
+          source: 'verified-sports',
+          authority: 1,
+        });
+      }
+    }
+  }
+
   // Multi-Source Deduplication & Enrichment Pipeline:
   // Detects and unifies duplicate events from AU Agenda, official portals (Olympia, Talia, IVC, MuBAV, IVAM),
   // ticketing providers, and open data feeds based on date overlap, venue matching, title containment,
@@ -2306,7 +2350,10 @@ async function main() {
     if (!title) return '';
     let t = stripAccents(title).toLowerCase();
     t = t.replace(/\s+@\s+.*$/, '');
-    t = t.replace(/^(la rialleta|ciclo|cicle|festival|temporada|gira|espectaculo|obra|exposicion|exposicio|concierto|concert):\s*/gi, '');
+    t = t.replace(
+      /^(la rialleta|ciclo\s+(?:de\s+)?[a-zçà-ú]+|cicle\s+(?:de\s+)?[a-zçà-ú]+|festival\s+(?:de\s+)?[a-zçà-ú]+|mostra\s+(?:de\s+)?[a-zçà-ú]+|temporada\s+(?:de\s+)?[a-zçà-ú]+|gira\s+(?:de\s+)?[a-zçà-ú]+|espectaculo|espectacle|obra|concierto|concert|exposicion|exposicio|sesion|sesio)[:\s-]+/gi,
+      ''
+    );
     t = t.replace(/[\u2018\u2019\u201C\u201D\x27\x22`´:;–—\-.,?!()[\]{}]/g, ' ');
     return t.replace(/\s+/g, ' ').trim();
   }
@@ -2314,12 +2361,12 @@ async function main() {
   const STOPWORDS = new Set([
     'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
     'y', 'i', 'en', 'a', 'al', 'per', 'por', 'con', 'show', 'teatre', 'teatro',
-    'valencia', 'valència', 'live', 'tour', 'trio', 'band', 'cia', 'cia.'
+    'valencia', 'valència', 'live', 'tour', 'trio', 'band', 'cia', 'cia.', 'the'
   ]);
 
   function extractSignificantKeywords(title) {
     const norm = cleanTitleForComparison(title);
-    return norm.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+    return norm.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
   }
 
   const GENERIC_SLUGS = new Set([
@@ -2328,7 +2375,7 @@ async function main() {
   ]);
 
   function extractSpecificSlug(url) {
-    if (!url || url === '#') return '';
+    if (!url || url === '#' || /au-agenda\.com\/(?:secciones|esceniques|exposicions)\//i.test(url)) return '';
     try {
       const u = new URL(url);
       const parts = u.pathname.split('/').filter(Boolean);
@@ -2337,8 +2384,14 @@ async function main() {
       if (/^[A-Z0-9_-]{8,}$/.test(slug) && parts.length > 1) {
         slug = parts[parts.length - 2];
       }
-      slug = slug.replace(/\.html?$/i, '').replace(/-\d+$/, '').toLowerCase();
-      if (GENERIC_SLUGS.has(slug) || slug.length < 5) return '';
+      slug = slug
+        .replace(/\.html?$/i, '')
+        .replace(/-\d{4}-\d{2}-\d{2}$/, '')
+        .replace(/-\d{8,}$/, '')
+        .replace(/-\d+$/, '')
+        .toLowerCase();
+      slug = slug.replace(/^(la-rialleta|ciclo-|cicle-|festival-)/i, '');
+      if (GENERIC_SLUGS.has(slug) || slug.length < 4) return '';
       return slug;
     } catch {
       return '';
@@ -2346,24 +2399,44 @@ async function main() {
   }
 
   function isDirectTicketingUrl(url) {
-    if (!url || url === '#') return false;
-    return (
-      /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com/i.test(url) &&
-      !/au-agenda\.com\/evento/i.test(url)
+    if (!url || url === '#' || url === '') return false;
+    if (/au-agenda\.com/i.test(url) || /songkick\.com/i.test(url)) return false;
+    return /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|mutick|entradium|fourvenues|dice\.fm|eventbrite|giglon|atrapalo|compralaentrada|teatroenvalencia\.com|teatroolimpia|teatreolimpia|teatretalia|teatreelmusical|teatroflumen|larambleta\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com|palauvalencia|lesarts\.com/i.test(
+      url
     );
+  }
+
+  function getUrlAuthorityScore(url) {
+    if (!url || url === '#' || /au-agenda\.com\/(?:secciones|esceniques|exposicions|musica)\//i.test(url)) {
+      return 4;
+    }
+    if (isDirectTicketingUrl(url)) {
+      return 1;
+    }
+    if (/au-agenda\.com\/evento\//i.test(url) || /songkick\.com\/concerts\//i.test(url)) {
+      return 2;
+    }
+    return 3;
   }
 
   function cleanTitleDisplay(title) {
     if (!title) return '';
-    return title.replace(/^La Rialleta:\s*/i, '').trim();
+    return title
+      .replace(
+        /^(la rialleta|ciclo\s+(?:de\s+)?[a-zçà-ú]+|cicle\s+(?:de\s+)?[a-zçà-ú]+|festival\s+(?:de\s+)?[a-zçà-ú]+|mostra\s+(?:de\s+)?[a-zçà-ú]+|temporada\s+(?:de\s+)?[a-zçà-ú]+|gira\s+(?:de\s+)?[a-zçà-ú]+)[:\s-]+/gi,
+        ''
+      )
+      .trim();
   }
 
   function selectBestTitle(t1, t2) {
     const c1 = cleanTitleDisplay(t1);
     const c2 = cleanTitleDisplay(t2);
 
-    if (c1.includes(':') && !c2.includes(':')) return c1;
-    if (c2.includes(':') && !c1.includes(':')) return c2;
+    const hasCyclePrefix = (t) =>
+      /^(la rialleta|ciclo|cicle|festival|mostra|temporada|fira)/i.test(t || '');
+    if (hasCyclePrefix(t1) && !hasCyclePrefix(t2)) return c2 || c1;
+    if (hasCyclePrefix(t2) && !hasCyclePrefix(t1)) return c1 || c2;
 
     if (c2.length > c1.length && c2.length < 75) return c2;
     return c1 || c2 || '';
@@ -2387,8 +2460,49 @@ async function main() {
     // Multi-day runs overlap
     if (sA <= eB && sB <= eA) return true;
 
-    const FourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
-    if (Math.abs(sA - sB) <= FourteenDaysMs) return true;
+    return false;
+  }
+
+  function areTitlesSimilar(t1, t2, sameVenueAndDate = false) {
+    const c1 = cleanTitleForComparison(t1);
+    const c2 = cleanTitleForComparison(t2);
+    if (!c1 || !c2) return false;
+    if (c1 === c2) return true;
+    if (c1.length >= 4 && c2.length >= 4 && (c1.includes(c2) || c2.includes(c1))) return true;
+
+    const tok1 = extractSignificantKeywords(c1);
+    const tok2 = extractSignificantKeywords(c2);
+    if (!tok1.length || !tok2.length) return false;
+
+    // Sorted token exact match (handles inverted word order: "the locos pedro angel roca" vs "pedro angel roca the locos")
+    if (tok1.slice().sort().join(' ') === tok2.slice().sort().join(' ')) return true;
+
+    if (sameVenueAndDate) {
+      const common = tok1.filter((t) => tok2.includes(t));
+      const minLen = Math.min(tok1.length, tok2.length);
+      const overlapRatio = common.length / minLen;
+
+      if (minLen >= 2 && overlapRatio >= 0.6) return true;
+      if (minLen === 1 && common.length === 1 && tok1.length <= 2 && tok2.length <= 2) return true;
+
+      // Fuzzy matching for typos or slight variations
+      let fuzzyMatches = 0;
+      for (const w1 of tok1) {
+        if (
+          tok2.some(
+            (w2) =>
+              w1 === w2 ||
+              (w1.length >= 5 &&
+                w2.length >= 5 &&
+                (w1.startsWith(w2.slice(0, -1)) ||
+                  (Math.abs(w1.length - w2.length) <= 1 && (w1.includes(w2) || w2.includes(w1)))))
+          )
+        ) {
+          fuzzyMatches++;
+        }
+      }
+      if (fuzzyMatches / minLen >= 0.65) return true;
+    }
 
     return false;
   }
@@ -2407,29 +2521,48 @@ async function main() {
     const v2 = cleanVenueForMatching(e2.venueName);
     const sameVenue = Boolean(v1 && v2 && (v1 === v2 || v1.includes(v2) || v2.includes(v1)));
 
-    const t1 = cleanTitleForComparison(e1.title);
-    const t2 = cleanTitleForComparison(e2.title);
-    const titleMatch = t1 === t2 || (t1.length >= 4 && t2.length >= 4 && (t1.includes(t2) || t2.includes(t1)));
+    const sameDate = Boolean(e1.startDate && e2.startDate && e1.startDate.slice(0, 10) === e2.startDate.slice(0, 10));
+    const datesMatch = sameDate || datesOverlapOrNearby(e1.startDate, e1.endDate, e2.startDate, e2.endDate);
 
-    const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
-    const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
-    const slugMatch = Boolean(slug1 && slug2 && (slug1 === slug2 || slug1.includes(slug2) || slug2.includes(slug1)));
+    if (sameVenue && datesMatch) {
+      if (areTitlesSimilar(e1.title, e2.title, sameDate)) {
+        return true;
+      }
 
-    const datesMatch = datesOverlapOrNearby(e1.startDate, e1.endDate, e2.startDate, e2.endDate);
-
-    if (sameVenue && (titleMatch || slugMatch) && datesMatch) {
-      return true;
+      const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
+      const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
+      if (slug1 && slug2) {
+        if (slug1 === slug2 || slug1.includes(slug2) || slug2.includes(slug1)) return true;
+        const stok1 = slug1.split('-').filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+        const stok2 = slug2.split('-').filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+        if (stok1.length && stok2.length && stok1.slice().sort().join(' ') === stok2.slice().sort().join(' ')) return true;
+        const sCommon = stok1.filter((t) => stok2.includes(t));
+        if (sCommon.length >= 2 && sCommon.length / Math.min(stok1.length, stok2.length) >= 0.6) return true;
+      }
     }
 
     return false;
   }
 
   function mergeDuplicateEvents(primary, secondary) {
-    const auth1 = primary.authority || (primary.id && primary.id.startsWith('au-') ? 3 : 2);
-    const auth2 = secondary.authority || (secondary.id && secondary.id.startsWith('au-') ? 3 : 2);
+    const pScore = Math.min(getUrlAuthorityScore(primary.ticketUrl), getUrlAuthorityScore(primary.url));
+    const sScore = Math.min(getUrlAuthorityScore(secondary.ticketUrl), getUrlAuthorityScore(secondary.url));
 
-    let base = auth1 <= auth2 ? { ...primary } : { ...secondary };
-    let other = auth1 <= auth2 ? secondary : primary;
+    let base;
+    let other;
+
+    if (pScore < sScore) {
+      base = { ...primary };
+      other = secondary;
+    } else if (sScore < pScore) {
+      base = { ...secondary };
+      other = primary;
+    } else {
+      const auth1 = primary.authority || (primary.id && primary.id.startsWith('au-') ? 3 : 2);
+      const auth2 = secondary.authority || (secondary.id && secondary.id.startsWith('au-') ? 3 : 2);
+      base = auth1 <= auth2 ? { ...primary } : { ...secondary };
+      other = auth1 <= auth2 ? secondary : primary;
+    }
 
     base.title = selectBestTitle(base.title, other.title);
 
