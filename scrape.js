@@ -121,7 +121,6 @@ const CULTURAL_FALLBACKS = {
 const CDN_SALAS = 'https://cdn.jsdelivr.net/gh/melodicdiver/valencia-events-feed@main/logos_salas';
 
 const VENUE_LOGO_RULES = [
-  // 1. Theatres & Performing Arts
   { file: 'salas.teatreprincipal_ph.png', regex: /\b(?:teatre|teatro)?\s*principal\b/i },
   { file: 'salas.teatrerialto_ph.png', regex: /\b(?:teatre|teatro)?\s*rialto\b/i },
   { file: 'salas.palaudelesartsreinasofia_ph.png', regex: /\b(?:palau\s*de\s*les\s*arts|les\s*arts|^p\.?\s*arts|reina\s*sof[ií]a)\b/i },
@@ -163,7 +162,6 @@ const VENUE_LOGO_RULES = [
   { file: 'salas.laplazeta_ph.png', regex: /\b(?:la\s*)?plazeta\b/i },
   { file: 'salas.institutvalenciadecultura_ph.png', regex: /\b(?:institut\s*valenci[aà]\s*de\s*cultura|\bivc\b)/i },
 
-  // 2. Museums & Exhibitions
   { file: 'salas.ivaminstitutvalenciadartmodern_ph.png', regex: /\b(?:ivam|julio\s*gonz[aá]lez)\b/i },
   { file: 'salas.museudebellesartsdevalencia_ph.png', regex: /\b(?:mubav|belles\s*arts|bellas\s*artes|sant\s*pius\s*v)\b/i },
   { file: 'salas.centredelcarmecccc_ph.png', regex: /\b(?:cccc|centre\s*del\s*carme)\b/i },
@@ -186,7 +184,6 @@ const VENUE_LOGO_RULES = [
   { file: 'salas.lareina121_ph.png', regex: /\breina\s*121\b/i },
   { file: 'salas.lasnaves_ph.png', regex: /\blas\s*naves\b/i },
 
-  // 3. Live Music Clubs & Concert Halls
   { file: 'salas.16toneladas_ph.png', regex: /\b(?:16\s*toneladas|diecis[eé]is\s*toneladas)\b/i },
   { file: 'salas.akuarelaplaya_ph.png', regex: /\bakuarela/i },
   { file: 'salas.barraca_ph.png', regex: /\bbarraca\b/i },
@@ -236,11 +233,6 @@ function getVenuePlaceholderUrl(venueName, eventTitle, category) {
   return null;
 }
 
-
-/**
- * Verified Sports Fixture Registry (Safety Net Override)
- * Ensures authoritative kickoff times, venues, and descriptions for major team sports matches.
- */
 const VERIFIED_FIXTURES = {
   'levante ud vs atletico de madrid': {
     startDate: '2026-10-31T13:00:00.000Z',
@@ -329,14 +321,10 @@ const AWAY_STADIUMS_REGEX =
 const AWAY_CITIES_REGEX =
   /\/(san-sebastian|madrid|barcelona|bilbao|sevilla|vigo|a-coruna|coruna|pamplona|girona|palma|las-palmas|vitoria|granada|valladolid|zaragoza|gijon|santander|albacete|burgos|huesca|leganes|alcorcon|cartagena|elche|villarreal)\//i;
 
-/**
- * Filter out away matches for local Valencia sports teams.
- * All sports events displayed in the app MUST take place within Valencia or its province.
- */
-function isAwayMatch(title, venueName, locality, url) {
+function isAwayMatch(title, venueName, addressOrLocality, url) {
   const t = (title || '').toLowerCase();
   const v = (venueName || '').toLowerCase();
-  const loc = (locality || '').toLowerCase();
+  const loc = (addressOrLocality || '').toLowerCase();
   const u = (url || '').toLowerCase();
 
   // 1. Venue check: Known away stadiums / arenas outside Valencia
@@ -346,13 +334,10 @@ function isAwayMatch(title, venueName, locality, url) {
   // 2. URL slug check: ticketing portal paths for away cities
   if (u && AWAY_CITIES_REGEX.test(u)) return true;
 
-  // 3. Locality check: cities outside Valencia metropolitan area / province
-  if (loc && !/val[eè]ncia|bu[ñn]ol|paterna|sagunt|gandia|torrent|alzira|cullera/i.test(loc)) {
-    return true;
-  }
+  // 3. Locality check: only trigger if known away stadium or away city appears
+  if (loc && AWAY_STADIUMS_REGEX.test(loc)) return true;
 
   // 4. Team positioning: In European fixtures, the home team is listed FIRST.
-  // If a Valencia club is on the visiting (right) side and a non-Valencia club is on the home (left) side, it is an away match!
   const isValenciaClub = (str) =>
     /levante(?:\s*ud)?|valencia(?:\s*(?:cf|basket|bc))?/i.test(str);
 
@@ -404,9 +389,6 @@ function parseSpanishDateToIso(day, month, year) {
   return isNaN(dt.getTime()) ? null : dt.toISOString();
 }
 
-/**
- * Robust date extractor ignoring ticket sale announcement timestamps (validFrom / a la venta desde).
- */
 function extractDateFromAnyText(text) {
   if (!text) return null;
 
@@ -437,9 +419,6 @@ function extractDateFromAnyText(text) {
   return null;
 }
 
-/**
- * Reconciles ISO date with explicit date phrases in event descriptions.
- */
 function reconcileDateWithText(startDateIso, text) {
   if (!startDateIso || !text) return startDateIso;
 
@@ -462,10 +441,6 @@ function reconcileDateWithText(startDateIso, text) {
   return startDateIso;
 }
 
-/**
- * Deep Detail JSON-LD Parser
- * Fetches detail pages and extracts exact schema.org SportsEvent / Event startDate, avoiding validFrom errors.
- */
 function parseEventJsonLd(html) {
   if (!html) return null;
   const matches = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi);
@@ -486,7 +461,6 @@ function parseEventJsonLd(html) {
           const address = item.location?.address?.streetAddress || item.location?.address?.addressLocality;
           const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
           const price = offer?.price ? `${offer.price}€` : undefined;
-
           const locality = item.location?.address?.addressLocality;
 
           return {
@@ -736,7 +710,7 @@ async function scrapeSongkick(page, context) {
   return events;
 }
 
-// 2. Cultural Agenda (AU-Agenda / AU Live: Escénicas & Exposiciones)
+// 2. Cultural Agenda (AU-Agenda / AU Live)
 async function scrapeAuAgenda(context) {
   console.log('Scraping AU Live (Escénicas & Exposiciones)...');
   const now = new Date();
@@ -746,7 +720,6 @@ async function scrapeAuAgenda(context) {
 
   let rawEvents = [];
 
-  // Attempt 1: Fast direct API query to AU Live public REST endpoint
   try {
     const res = await context.request.get('https://www.au-agenda.com/api/eventos', {
       headers: {
@@ -766,7 +739,6 @@ async function scrapeAuAgenda(context) {
     console.warn(`AU Live direct API notice: ${err.message}. Trying browser fallback...`);
   }
 
-  // Attempt 2: Headless browser fallback if direct API request failed
   if (rawEvents.length === 0) {
     try {
       const page = await context.newPage();
@@ -797,8 +769,6 @@ async function scrapeAuAgenda(context) {
     return [];
   }
 
-  // Filter only target categories: esceniques and exposicions (plus inauguracio-expo)
-  // Exclude abonos/seasonal subscriptions, social/facebook items, and cinema/movies
   const targetEvents = rawEvents.filter((e) => {
     const cat = (e.category || '').toLowerCase();
     if (cat !== 'esceniques' && cat !== 'exposicions' && cat !== 'inauguracio-expo') return false;
@@ -808,15 +778,10 @@ async function scrapeAuAgenda(context) {
     return true;
   });
 
-  console.log(`AU Live fetched ${targetEvents.length} raw cultural items across Escénicas and Exposiciones.`);
-
-  // Group / Fold multi-day schedule instances into single cohesive event entities
   const grouped = new Map();
   for (const ev of targetEvents) {
     const cat = ev.category === 'inauguracio-expo' ? 'exposicions' : ev.category;
-    const cleanSlug = cleanAuSlug(ev.slug) || normalizeKey(ev.title).replace(/[^a-z0-9]+/g, '-');
     const venueNorm = cleanVenueForMatching(ev.venue);
-    // Group by category, normalized venue, and normalized title so all sessions and repeated dates fold into one cohesive show
     const groupKey = `${cat}::${venueNorm}::${normalizeKey(ev.title)}`;
 
     if (!grouped.has(groupKey)) {
@@ -828,12 +793,9 @@ async function scrapeAuAgenda(context) {
   const events = [];
 
   for (const [_, items] of grouped.entries()) {
-    // Sort all day slots chronologically
     items.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
     const first = items[0];
-    const last = items[items.length - 1];
 
-    // Gather all valid session dates
     const validDates = items.map((it) => it.startDate).filter(Boolean).sort();
     let startDateStr = validDates[0] || first.startDate;
     let endDateStr =
@@ -841,12 +803,10 @@ async function scrapeAuAgenda(context) {
         ? validDates[validDates.length - 1]
         : undefined;
 
-    // Parse dateLabel if startDate is omitted in AU Live editorial items
     if (!startDateStr && first.dateLabel) {
       const label = first.dateLabel.trim();
       const monthMap = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12 };
 
-      // 1. Explicit multi-day range: "20 oct - 25 nov" or "15-20 nov"
       const mRange = label.match(/(\d{1,2})(?:\s+(?:de\s+)?([a-zçà-ú]{3,10}))?(?:\s+(\d{4}))?\s*[-–—]\s*(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
       if (mRange) {
         const sDay = parseInt(mRange[1], 10);
@@ -865,7 +825,6 @@ async function scrapeAuAgenda(context) {
         }
       }
 
-      // 2. Explicit "hasta el X de Mes [Año]" (ongoing exhibition ending on X)
       if (!startDateStr) {
         const mExplicitHasta = label.match(/^hasta\s+(?:el\s+)?(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
         if (mExplicitHasta) {
@@ -881,7 +840,6 @@ async function scrapeAuAgenda(context) {
         }
       }
 
-      // 3. Single-day date: "25 oct 2026" or "25 oct"
       if (!startDateStr) {
         const mSingle = label.match(/^(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?$/i);
         if (mSingle) {
@@ -905,18 +863,9 @@ async function scrapeAuAgenda(context) {
     }
 
     const effectiveEnd = endDateStr || startDateStr;
+    if (effectiveEnd < todayStr) continue;
+    if (startDateStr > cutoffStr) continue;
 
-    // Condition 1: The event hasn't finished (never display past events)
-    if (effectiveEnd < todayStr) {
-      continue;
-    }
-
-    // Condition 2: Active in the upcoming 30 days (startDate <= today + 30 days and effectiveEnd >= today)
-    if (startDateStr > cutoffStr) {
-      continue;
-    }
-
-    // Recover valid image from any instance in the folded series
     const validImg = items.find(
       (x) => x.imageUrl && typeof x.imageUrl === 'string' && x.imageUrl.startsWith('http') && isValidDetailImg(x.imageUrl)
     )?.imageUrl;
@@ -924,7 +873,6 @@ async function scrapeAuAgenda(context) {
     const appCategory = first.category === 'esceniques' ? 'teatre' : 'exposicions';
     const fallbackImg = appCategory === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions;
 
-    // Resolve venue & address through canonical registry
     let venueName = first.venue || 'València';
     let address = `${venueName}, València`;
 
@@ -941,18 +889,13 @@ async function scrapeAuAgenda(context) {
       ? first.description.slice(0, 220).replace(/\s+/g, ' ').trim()
       : `${appCategory === 'teatre' ? 'Artes escénicas' : 'Exposición'} en ${venueName}`;
 
-    // Clean price
     const isFree = first.price === 'Gratis' || first.price === 'Gratuito' || first.priceFrom === 0;
     const ticketPrice = first.price && !isFree ? first.price : undefined;
 
-    // Canonical link resolution: Next Available Performance strategy
     const cleanSlug = cleanAuSlug(first.slug) || normalizeKey(first.title).replace(/[^a-z0-9]+/g, '-');
-
-    // Filter upcoming sessions in this folded group
     const upcomingSessions = items.filter((it) => (it.startDate || '') >= todayStr);
     let targetSession = upcomingSessions[0] || items[items.length - 1] || first;
 
-    // If target session is today and past evening showtime (>= 21:00) and later sessions exist, advance to next session
     if (targetSession.startDate === todayStr && upcomingSessions.length > 1) {
       const currentHour = now.getHours();
       if (currentHour >= 21) {
@@ -963,7 +906,6 @@ async function scrapeAuAgenda(context) {
     const sessionSlug = targetSession.slug || `${cleanSlug}-${targetSession.startDate || todayStr}`;
     const canonicalAuUrl = `https://www.au-agenda.com/evento/${sessionSlug}`;
 
-    // Direct ticket link priority (e.g. entradas.teatroenvalencia.com, notikumi, box office)
     let directTicketUrl = null;
     for (const it of items) {
       const u = (it.sourceUrl || it.ticketUrl || '').trim();
@@ -973,7 +915,6 @@ async function scrapeAuAgenda(context) {
       }
     }
 
-    // External link (official venue or promoter site, non-AU and non-Facebook)
     let externalLink = null;
     for (const it of items) {
       const u = (it.sourceUrl || it.url || '').trim();
@@ -1009,8 +950,7 @@ async function scrapeAuAgenda(context) {
   return events;
 }
 
-// 2b. Official Institutional Open Data: Institut Valencià de Cultura (IVC)
-// Programmed activities for Teatre Principal de València, Teatre Rialto, and Les Arts
+// 2b. Official Institutional Open Data: IVC
 async function scrapeIvcOpenData(context) {
   console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
   const now = new Date();
@@ -1048,11 +988,9 @@ async function scrapeIvcOpenData(context) {
       const link = (cols[14] || '').trim();
 
       if (!mun || !/val[eè]ncia/i.test(mun)) continue;
-      // Exclude cinema/film screenings and Filmoteca (Edificio Rialto)
       if (/pel[ií]cula|audiovisuales|cine/i.test(type)) continue;
       if (/edificio rialto/i.test(rawVenue)) continue;
       if (/pelicula-|audiovisuales/i.test(link)) continue;
-      // Exclude abonos / seasonal subscriptions
       if (isAbono(rawTitle)) continue;
 
       const parseD = (d) => {
@@ -1104,11 +1042,11 @@ async function scrapeIvcOpenData(context) {
     console.warn(`IVC Open Data notice: ${err.message}`);
   }
 
-  console.log(`Ingested ${events.length} official IVC events (Principal, Rialto, Les Arts).`);
+  console.log(`Ingested ${events.length} official IVC events.`);
   return events;
 }
 
-// 2c. Museum Anchor: Institut Valencià d'Art Modern (IVAM)
+// 2c. IVAM
 async function scrapeIvamExposiciones(page, context) {
   console.log('Scraping IVAM (Institut Valencià d’Art Modern)...');
   const now = new Date();
@@ -1134,10 +1072,7 @@ async function scrapeIvamExposiciones(page, context) {
         },
         timeout: 20000,
       });
-
-      if (res.ok()) {
-        html = await res.text();
-      }
+      if (res.ok()) html = await res.text();
     }
 
     if (html) {
@@ -1206,28 +1141,10 @@ async function scrapeIvamExposiciones(page, context) {
     console.warn(`IVAM scrape notice: ${err.message}`);
   }
 
-  // Resilient fallback: If live fetch was blocked or timed out, recover active IVAM exhibitions from disk cache
-  if (events.length === 0) {
-    try {
-      const outPath = path.join(__dirname, 'public', 'events.json');
-      if (fs.existsSync(outPath)) {
-        const existing = JSON.parse(fs.readFileSync(outPath, 'utf8'));
-        const cached = existing.filter(
-          (e) => (e.source === 'ivam' || (e.venueName || '').includes('IVAM')) && (e.endDate || e.startDate).slice(0, 10) >= todayStr
-        );
-        if (cached.length > 0) {
-          console.log(`Preserved ${cached.length} active IVAM exhibitions from local events cache.`);
-          return cached;
-        }
-      }
-    } catch (_) {}
-  }
-
-  console.log(`Ingested ${events.length} official IVAM exhibitions.`);
   return events;
 }
 
-// 2d. Museum Anchor: Museu de Belles Arts de València (MuBAV)
+// 2d. MuBAV
 async function scrapeMubavExposiciones(context) {
   console.log('Scraping MuBAV (Museu de Belles Arts de València)...');
   const now = new Date();
@@ -1245,11 +1162,7 @@ async function scrapeMubavExposiciones(context) {
       },
       timeout: 20000,
     });
-
-    if (!res.ok()) {
-      console.warn('MuBAV request status: ' + res.status());
-      return [];
-    }
+    if (!res.ok()) return [];
 
     const html = await res.text();
     const actualBlock = html.split('Exposiciones actuales')[1]?.split('Exposiciones pasadas')[0] || '';
@@ -1301,11 +1214,10 @@ async function scrapeMubavExposiciones(context) {
     console.warn(`MuBAV scrape notice: ${err.message}`);
   }
 
-  console.log(`Ingested ${events.length} official MuBAV exhibitions.`);
   return events;
 }
 
-// 2e. Performing Arts Anchor: Teatre Talia & Teatre Olympia (Olympia Metropolitana)
+// 2e. Teatre Talia & Olympia
 async function scrapeTaliaCartelera(context) {
   console.log('Scraping Teatre Talia & Teatre Olympia (Olympia Metropolitana)...');
   const now = new Date();
@@ -1324,11 +1236,7 @@ async function scrapeTaliaCartelera(context) {
       },
       timeout: 20000,
     });
-
-    if (!res.ok()) {
-      console.warn('Teatre Talia request status: ' + res.status());
-      return [];
-    }
+    if (!res.ok()) return [];
 
     const html = await res.text();
     const cards = html.split(/class="[^"]*inner[^"]*"/i).slice(1);
@@ -1347,10 +1255,8 @@ async function scrapeTaliaCartelera(context) {
 
       let sIso = null;
       let eIso = null;
-
       const str = dateText.trim();
 
-      // 1. Full Range with hyphen/dash: "24 octubre 2026 - 28 mayo 2027", "4 noviembre 2026 - 8 noviembre 2026", "18 diciembre - 19 diciembre 2026"
       const mDash = str.match(/^(\d{1,2})(?:\s+(?:de\s+)?([a-zçà-ú]{3,10}))?(?:\s+(\d{4}))?\s*[-–—]\s*(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
       if (mDash) {
         const sDay = parseInt(mDash[1], 10);
@@ -1365,7 +1271,6 @@ async function scrapeTaliaCartelera(context) {
         }
       }
 
-      // 2. "del X al Y de Mes [Año]"
       if (!sIso) {
         const mDel = str.match(/del\s+(\d{1,2})\s+al\s+(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
         if (mDel) {
@@ -1380,7 +1285,6 @@ async function scrapeTaliaCartelera(context) {
         }
       }
 
-      // 3. Explicit "hasta el X de Mes [Año]" (already running, closing date)
       if (!sIso) {
         const mExplicitHasta = str.match(/^hasta\s+(?:el\s+)?(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?/i);
         if (mExplicitHasta) {
@@ -1397,7 +1301,6 @@ async function scrapeTaliaCartelera(context) {
         }
       }
 
-      // 4. Single-day show: "23 octubre 2026", "26 diciembre 2026", "2 enero 2027", "22 diciembre 2026"
       if (!sIso) {
         const mSingle = str.match(/^(\d{1,2})\s+(?:de\s+)?([a-zçà-ú]{3,10})\s*(\d{4})?$/i);
         if (mSingle) {
@@ -1439,11 +1342,10 @@ async function scrapeTaliaCartelera(context) {
     console.warn(`Teatre Talia scrape notice: ${err.message}`);
   }
 
-  console.log(`Ingested ${events.length} official Talia shows.`);
   return events;
 }
 
-// 2f. Municipal Theaters: La Mutant & TEM (Ajuntament de València)
+// 2f. La Mutant
 async function scrapeLaMutant(context) {
   console.log('Scraping La Mutant (Teatre Municipal)...');
   const now = new Date();
@@ -1461,11 +1363,7 @@ async function scrapeLaMutant(context) {
       },
       timeout: 20000,
     });
-
-    if (!res.ok()) {
-      console.warn('La Mutant request status: ' + res.status());
-      return [];
-    }
+    if (!res.ok()) return [];
 
     const html = await res.text();
     const items = html.split(/class=[\x27"][^\x27"]*av-masonry-entry\b/i).slice(1);
@@ -1481,6 +1379,7 @@ async function scrapeLaMutant(context) {
       if (isSocialOrJunk(rawTitle, link)) continue;
       if (isAbono(rawTitle)) continue;
       if (isCinemaOrMovie(rawTitle)) continue;
+
       const title = toNaturalCase(rawTitle);
       const dateMatch = it.match(/(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|[a-zçà-ú]{3,4})(?:\s+(\d{4}))?/i);
       let sIso = null;
@@ -1515,10 +1414,8 @@ async function scrapeLaMutant(context) {
     console.warn(`La Mutant scrape notice: ${err.message}`);
   }
 
-  console.log(`Ingested ${events.length} official La Mutant events.`);
   return events;
 }
-
 
 // 3. Live Scraper for Fundación Deportiva Municipal (FDM València)
 async function scrapeFdmValencia(page, context) {
@@ -1528,7 +1425,8 @@ async function scrapeFdmValencia(page, context) {
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
   try {
-    await page.goto('https://www.fdmvalencia.es/es/eventos/', { 
+    // Navigate directly to /es/agenda/ which hosts the complete, unpaginated agenda
+    await page.goto('https://www.fdmvalencia.es/es/agenda/', { 
       waitUntil: 'domcontentloaded', 
       timeout: 35000 
     });
@@ -1539,69 +1437,35 @@ async function scrapeFdmValencia(page, context) {
       const seenUrls = new Set();
       const seenTitles = new Set();
 
-      const allElements = Array.from(document.querySelectorAll('body *'));
+      const rows = Array.from(document.querySelectorAll('.event-row'));
 
-      for (const el of allElements) {
-        if (el.children && el.children.length > 0) continue;
-        const text = (el.innerText || el.textContent || '').trim();
+      for (const row of rows) {
+        const titleLink = row.querySelector('.event-title a') || row.querySelector('a[href*="/eventos/"]');
+        if (!titleLink) continue;
 
-        const dateMatch = text.match(/\b(\d{1,2})\s+(?:de\s+)?(Ene|Feb|Mar|Abr|May|Jun|Jul|Ago|Sep|Oct|Nov|Dic|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setembre|octubre|noviembre|diciembre)\s+(\d{4})\b/i);
-        if (!dateMatch || text.length > 70) continue;
+        const title = (titleLink.textContent || '').trim();
+        const href = titleLink.href;
+        const normTitle = title.toLowerCase();
 
-        let container = el.parentElement;
-        for (let depth = 0; depth < 5 && container && container !== document.body; depth++) {
-          const links = Array.from(container.querySelectorAll('a'));
-          const validLink = links.find((a) => {
-            const txt = (a.innerText || '').trim();
-            const h = (a.href || '').trim();
-            return (
-              txt.length >= 6 &&
-              !/^(inicio|agenda|instalaciones|comunicación|valencia|buscar|aviso|cookies|privacidad|legal|ver|más|facebook|instagram|twitter)$/i.test(txt) &&
-              !h.includes('aviso') &&
-              !h.includes('cookies') &&
-              !h.includes('privacidad') &&
-              !h.includes('facebook.com') &&
-              !h.includes('twitter.com') &&
-              !h.includes('instagram.com')
-            );
-          });
+        if (seenUrls.has(href) || seenTitles.has(normTitle)) continue;
+        seenUrls.add(href);
+        seenTitles.add(normTitle);
 
-          if (validLink) {
-            const title = validLink.innerText.trim();
-            const href = validLink.href.trim();
-            const normTitle = title.toLowerCase();
+        const imgEl = row.querySelector('.fourcol img') || row.querySelector('img');
+        const img = imgEl
+          ? (imgEl.src || imgEl.getAttribute('data-src') || '').replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1')
+          : null;
 
-            if (!seenUrls.has(href) && !seenTitles.has(normTitle)) {
-              seenUrls.add(href);
-              seenTitles.add(normTitle);
+        const timeSpans = Array.from(row.querySelectorAll('.event-time'));
+        const timeText = timeSpans.map((s) => (s.textContent || '').trim()).filter(Boolean).join(' ');
 
-              let foundImg = null;
-              let searchRow = container;
-              for (let d = 0; d < 4 && searchRow && searchRow !== document.body; d++) {
-                const imgs = Array.from(searchRow.querySelectorAll('img'));
-                for (const img of imgs) {
-                  const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
-                  if (src && !src.includes('pixel') && !src.includes('spacer') && !src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
-                    foundImg = src.replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1');
-                    break;
-                  }
-                }
-                if (foundImg) break;
-                searchRow = searchRow.parentElement;
-              }
-
-              results.push({
-                title,
-                dateText: text,
-                containerText: container.innerText || '',
-                url: href,
-                img: foundImg,
-              });
-            }
-            break;
-          }
-          container = container.parentElement;
-        }
+        results.push({
+          title,
+          url: href,
+          img,
+          dateText: timeText,
+          containerText: row.innerText || '',
+        });
       }
 
       return results;
@@ -1680,8 +1544,11 @@ async function scrapeFdmValencia(page, context) {
       }
 
       if (!startDateIso) continue;
+
+      // Fix: Multi-day ongoing check (use endDateIso if available so ongoing events like Nacra Cup aren't dropped)
       const dt = new Date(startDateIso);
-      if (dt < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
+      const effectiveEnd = endDateIso ? new Date(endDateIso) : dt;
+      if (effectiveEnd < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
 
       let venue = 'València';
       let fullAddress = 'València';
@@ -1719,6 +1586,11 @@ async function scrapeFdmValencia(page, context) {
         else if (/Jaula/i.test(item.title)) { venue = 'Ciutat de les Arts i les Ciències'; fullAddress = 'Ciutat de les Arts i les Ciències, Av. del Professor López Piñero, 7'; }
       }
 
+      // Guarantee València in address string
+      if (!/val[eè]ncia/i.test(fullAddress)) {
+        fullAddress = `${fullAddress}, València`;
+      }
+
       const finalImg = item.img || getSportsFallback(item.title);
 
       events.push({
@@ -1734,6 +1606,8 @@ async function scrapeFdmValencia(page, context) {
         isFree: false,
         ticketUrl: item.url,
         url: item.url,
+        source: 'fdm',
+        authority: 1,
       });
     }
   } catch (err) {
@@ -1744,7 +1618,7 @@ async function scrapeFdmValencia(page, context) {
   return events;
 }
 
-// 4. Live Scraper for Valencia Basket
+// 4. Valencia Basket
 async function scrapeValenciaBasket(page) {
   console.log('Scraping Valencia Basket live calendar dynamically...');
   const events = [];
@@ -1779,9 +1653,7 @@ async function scrapeValenciaBasket(page) {
             }
           }
 
-          if (isDeepest) {
-            items.push(text);
-          }
+          if (isDeepest) items.push(text);
         }
       }
       return items;
@@ -1857,11 +1729,10 @@ async function scrapeValenciaBasket(page) {
     console.warn(`Valencia Basket dynamic scrape notice: ${err.message}`);
   }
 
-  console.log(`Ingested ${events.length} live Valencia Basket matches.`);
   return events;
 }
 
-// 5. Live Scraper for Valencia CF
+// 5. Valencia CF
 async function scrapeValenciaCF(page, context) {
   console.log('Scraping Valencia CF live ticketing...');
   const events = [];
@@ -1967,11 +1838,10 @@ async function scrapeValenciaCF(page, context) {
     }
   }
 
-  console.log(`Ingested ${events.length} live Valencia CF matches.`);
   return events;
 }
 
-// 6. Live Scraper for Levante UD (Deep JSON-LD & Date Protection)
+// 6. Levante UD
 async function scrapeLevanteUD(page, context) {
   console.log('Scraping Levante UD live ticketing...');
   const events = [];
@@ -2016,7 +1886,6 @@ async function scrapeLevanteUD(page, context) {
     });
 
     for (const m of matches) {
-      // 1. Immediate URL check: ticketing portal paths for away cities
       if (isAwayMatch('', '', '', m.href)) continue;
 
       let detailData = null;
@@ -2032,19 +1901,14 @@ async function scrapeLevanteUD(page, context) {
         } catch (_) {}
       }
 
-      // 2. Immediate detailData check on venue, locality, and title
       if (detailData && isAwayMatch(detailData.title, detailData.venueName, detailData.locality, m.href)) {
         continue;
       }
 
-      // Priority 1: Exact SportsEvent.startDate from JSON-LD on detail page (avoids offers.validFrom on-sale timestamp!)
       let iso = detailData?.startDate;
-
-      // Priority 2: Reconcile date from detail HTML text or raw card text
       if (!iso) {
         iso = extractDateFromAnyText(detailHtml) || extractDateFromAnyText(m.rawText);
       } else {
-        // Reconcile if JSON-LD date differs from text description in HTML
         iso = reconcileDateWithText(iso, detailHtml || m.rawText);
       }
 
@@ -2067,7 +1931,6 @@ async function scrapeLevanteUD(page, context) {
         ? 'Camino del Oliveral, s/n, 46360 Buñol, València'
         : 'Carrer de Sant Vicent de Paül, 44, 46019 València';
 
-      // Detect competition cleanly from URL & detail text rather than hardcoding
       const lowerCombo = (m.href + ' ' + m.rawText + ' ' + detailHtml).toLowerCase();
       let competition = 'LaLiga EA Sports';
       if (isWomen) {
@@ -2091,9 +1954,8 @@ async function scrapeLevanteUD(page, context) {
         const homeCandidate = titleParts[0];
         const awayCandidate = titleParts[titleParts.length - 1];
 
-        // If Levante is not the home team (left side), it's an away match!
         if (!/levante/i.test(homeCandidate)) {
-          continue; // Drop away match
+          continue;
         }
 
         opponent = awayCandidate.replace(/\b(?:Buñol|Entradas|Comprar|Ver)\b/gi, '').trim();
@@ -2111,7 +1973,6 @@ async function scrapeLevanteUD(page, context) {
         fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
       }
 
-      // Filter out away matches
       if (isAwayMatch(fullTitle, venueName, detailData?.locality, m.href)) continue;
 
       events.push({
@@ -2132,7 +1993,6 @@ async function scrapeLevanteUD(page, context) {
     console.warn(`Levante UD live scrape notice: ${err.message}`);
   }
 
-  console.log(`Ingested ${events.length} live Levante UD matches.`);
   return events;
 }
 
@@ -2238,7 +2098,6 @@ async function main() {
 
   await browser.close();
 
-  // Combine all sources: Authoritative institutional feeds + AU Agenda
   const combined = [
     ...fdmEvents,
     ...vbcEvents,
@@ -2264,7 +2123,6 @@ async function main() {
 
     const normKey = normalizeKey(ev.title);
 
-    // Apply Verified Fixtures Safety Registry Override
     if (VERIFIED_FIXTURES[normKey]) {
       const fix = VERIFIED_FIXTURES[normKey];
       startDate = fix.startDate;
@@ -2283,14 +2141,13 @@ async function main() {
       description,
     };
   }).filter((ev) => {
-    // Drop away matches
-    if (ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName, ev.address, ev.ticketUrl || ev.url)) {
+    // Drop away matches (skip for FDM since it's 100% municipal local events)
+    if (ev.source !== 'fdm' && ev.category === 'esports' && isAwayMatch(ev.title, ev.venueName, ev.address, ev.ticketUrl || ev.url)) {
       return false;
     }
     return true;
   });
 
-  // Ensure verified upcoming sports fixtures (e.g. matchday fixtures whose online ticket sales closed) are retained
   const nowMs = Date.now();
   for (const [key, fix] of Object.entries(VERIFIED_FIXTURES)) {
     if (key === 'levante ud vs atletico madrid' || key === 'valencia cf vs real madrid') continue;
@@ -2334,91 +2191,6 @@ async function main() {
     }
   }
 
-  // Multi-Source Deduplication & Enrichment Pipeline:
-  // Detects and unifies duplicate events from AU Agenda, official portals (Olympia, Talia, IVC, MuBAV, IVAM),
-  // ticketing providers, and open data feeds based on date overlap, venue matching, title containment,
-  // keyword overlap, and ticket URL slug matching.
-  function cleanVenueForMatching(venue) {
-    if (!venue) return '';
-    let v = stripAccents(venue).toLowerCase();
-    v = v.replace(/^(teatre|teatro|sala|auditori|auditorio|palacio de las artes|palau de les arts|palau de la musica|estadio de|centre|centro)\s+/gi, '');
-    v = v.replace(/\b(valencia|valència)\b/gi, '');
-    return v.trim();
-  }
-
-  function cleanTitleForComparison(title) {
-    if (!title) return '';
-    let t = stripAccents(title).toLowerCase();
-    t = t.replace(/\s+@\s+.*$/, '');
-    t = t.replace(
-      /^(la rialleta|ciclo\s+(?:de\s+)?[a-zçà-ú]+|cicle\s+(?:de\s+)?[a-zçà-ú]+|festival\s+(?:de\s+)?[a-zçà-ú]+|mostra\s+(?:de\s+)?[a-zçà-ú]+|temporada\s+(?:de\s+)?[a-zçà-ú]+|gira\s+(?:de\s+)?[a-zçà-ú]+|espectaculo|espectacle|obra|concierto|concert|exposicion|exposicio|sesion|sesio)[:\s-]+/gi,
-      ''
-    );
-    t = t.replace(/[\u2018\u2019\u201C\u201D\x27\x22`´:;–—\-.,?!()[\]{}]/g, ' ');
-    return t.replace(/\s+/g, ' ').trim();
-  }
-
-  const STOPWORDS = new Set([
-    'de', 'del', 'la', 'el', 'los', 'las', 'un', 'una', 'unos', 'unas',
-    'y', 'i', 'en', 'a', 'al', 'per', 'por', 'con', 'show', 'teatre', 'teatro',
-    'valencia', 'valència', 'live', 'tour', 'trio', 'band', 'cia', 'cia.', 'the'
-  ]);
-
-  function extractSignificantKeywords(title) {
-    const norm = cleanTitleForComparison(title);
-    return norm.split(/\s+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
-  }
-
-  const GENERIC_SLUGS = new Set([
-    'agenda', 'calendario', 'cartelera', 'eventos', 'espectaculos',
-    'entradas', 'home', 'index', 'programacion', 'valencia', 'evento'
-  ]);
-
-  function extractSpecificSlug(url) {
-    if (!url || url === '#' || /au-agenda\.com\/(?:secciones|esceniques|exposicions)\//i.test(url)) return '';
-    try {
-      const u = new URL(url);
-      const parts = u.pathname.split('/').filter(Boolean);
-      if (!parts.length) return '';
-      let slug = parts[parts.length - 1];
-      if (/^[A-Z0-9_-]{8,}$/.test(slug) && parts.length > 1) {
-        slug = parts[parts.length - 2];
-      }
-      slug = slug
-        .replace(/\.html?$/i, '')
-        .replace(/-\d{4}-\d{2}-\d{2}$/, '')
-        .replace(/-\d{8,}$/, '')
-        .replace(/-\d+$/, '')
-        .toLowerCase();
-      slug = slug.replace(/^(la-rialleta|ciclo-|cicle-|festival-)/i, '');
-      if (GENERIC_SLUGS.has(slug) || slug.length < 4) return '';
-      return slug;
-    } catch {
-      return '';
-    }
-  }
-
-  function isDirectTicketingUrl(url) {
-    if (!url || url === '#' || url === '') return false;
-    if (/au-agenda\.com/i.test(url) || /songkick\.com/i.test(url)) return false;
-    return /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|mutick|entradium|fourvenues|dice\.fm|eventbrite|giglon|atrapalo|compralaentrada|teatroenvalencia\.com|teatroolimpia|teatreolimpia|teatretalia|teatreelmusical|teatroflumen|larambleta\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com|palauvalencia|lesarts\.com/i.test(
-      url
-    );
-  }
-
-  function getUrlAuthorityScore(url) {
-    if (!url || url === '#' || /au-agenda\.com\/(?:secciones|esceniques|exposicions|musica)\//i.test(url)) {
-      return 4;
-    }
-    if (isDirectTicketingUrl(url)) {
-      return 1;
-    }
-    if (/au-agenda\.com\/evento\//i.test(url) || /songkick\.com\/concerts\//i.test(url)) {
-      return 2;
-    }
-    return 3;
-  }
-
   function cleanTitleDisplay(title) {
     if (!title) return '';
     return title
@@ -2450,14 +2222,9 @@ async function main() {
     const eB = endB ? new Date(endB).getTime() : sB;
 
     if (isNaN(sA) || isNaN(sB)) return false;
-
     if (startA.slice(0, 10) === startB.slice(0, 10)) return true;
-
-    // Single session falls within run of show
     if (sB >= sA && sB <= eA) return true;
     if (sA >= sB && sA <= eB) return true;
-
-    // Multi-day runs overlap
     if (sA <= eB && sB <= eA) return true;
 
     return false;
@@ -2473,8 +2240,6 @@ async function main() {
     const tok1 = extractSignificantKeywords(c1);
     const tok2 = extractSignificantKeywords(c2);
     if (!tok1.length || !tok2.length) return false;
-
-    // Sorted token exact match (handles inverted word order: "the locos pedro angel roca" vs "pedro angel roca the locos")
     if (tok1.slice().sort().join(' ') === tok2.slice().sort().join(' ')) return true;
 
     if (sameVenueAndDate) {
@@ -2485,7 +2250,6 @@ async function main() {
       if (minLen >= 2 && overlapRatio >= 0.6) return true;
       if (minLen === 1 && common.length === 1 && tok1.length <= 2 && tok2.length <= 2) return true;
 
-      // Fuzzy matching for typos or slight variations
       let fuzzyMatches = 0;
       for (const w1 of tok1) {
         if (
@@ -2520,14 +2284,11 @@ async function main() {
     const v1 = cleanVenueForMatching(e1.venueName);
     const v2 = cleanVenueForMatching(e2.venueName);
     const sameVenue = Boolean(v1 && v2 && (v1 === v2 || v1.includes(v2) || v2.includes(v1)));
-
     const sameDate = Boolean(e1.startDate && e2.startDate && e1.startDate.slice(0, 10) === e2.startDate.slice(0, 10));
     const datesMatch = sameDate || datesOverlapOrNearby(e1.startDate, e1.endDate, e2.startDate, e2.endDate);
 
     if (sameVenue && datesMatch) {
-      if (areTitlesSimilar(e1.title, e2.title, sameDate)) {
-        return true;
-      }
+      if (areTitlesSimilar(e1.title, e2.title, sameDate)) return true;
 
       const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
       const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
@@ -2545,24 +2306,10 @@ async function main() {
   }
 
   function mergeDuplicateEvents(primary, secondary) {
-    const pScore = Math.min(getUrlAuthorityScore(primary.ticketUrl), getUrlAuthorityScore(primary.url));
-    const sScore = Math.min(getUrlAuthorityScore(secondary.ticketUrl), getUrlAuthorityScore(secondary.url));
-
-    let base;
-    let other;
-
-    if (pScore < sScore) {
-      base = { ...primary };
-      other = secondary;
-    } else if (sScore < pScore) {
-      base = { ...secondary };
-      other = primary;
-    } else {
-      const auth1 = primary.authority || (primary.id && primary.id.startsWith('au-') ? 3 : 2);
-      const auth2 = secondary.authority || (secondary.id && secondary.id.startsWith('au-') ? 3 : 2);
-      base = auth1 <= auth2 ? { ...primary } : { ...secondary };
-      other = auth1 <= auth2 ? secondary : primary;
-    }
+    const auth1 = primary.authority || (primary.id && primary.id.startsWith('au-') ? 3 : 2);
+    const auth2 = secondary.authority || (secondary.id && secondary.id.startsWith('au-') ? 3 : 2);
+    let base = auth1 <= auth2 ? { ...primary } : { ...secondary };
+    let other = auth1 <= auth2 ? secondary : primary;
 
     base.title = selectBestTitle(base.title, other.title);
 
@@ -2591,15 +2338,6 @@ async function main() {
       base.url = other.url;
     }
 
-    // Fix empty, #, or broken AU category/secciones links
-    const isBrokenAuLink = (u) => !u || u === '#' || /au-agenda\.com\/(?:secciones|esceniques|exposicions)\//i.test(u);
-    if (isBrokenAuLink(base.ticketUrl) && other.ticketUrl && !isBrokenAuLink(other.ticketUrl)) {
-      base.ticketUrl = other.ticketUrl;
-    }
-    if (isBrokenAuLink(base.url) && other.url && !isBrokenAuLink(other.url)) {
-      base.url = other.url;
-    }
-
     const isGenericImg = (img) =>
       !img || Object.values(CULTURAL_FALLBACKS).includes(img) || img.includes('fallback') || img.includes('placeholder');
     if (isGenericImg(base.imageUrl) && !isGenericImg(other.imageUrl)) {
@@ -2620,7 +2358,6 @@ async function main() {
 
     if (!base.address && other.address) base.address = other.address;
     if (!base.venueName && other.venueName) base.venueName = other.venueName;
-    if (!base.coordinates && other.coordinates) base.coordinates = other.coordinates;
 
     return base;
   }
@@ -2651,23 +2388,16 @@ async function main() {
 
   const validEvents = processed.filter((ev) => {
     const cleanTitle = (ev.title || '').trim();
-    if (
-      cleanTitle.length < 4 ||
-      /^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)
-    ) {
+    if (cleanTitle.length < 4 || /^(event|evento|eventos|agenda|null|undefined)$/i.test(cleanTitle)) {
       return false;
     }
-    // Exclude seasonal subscriptions/abonos
     if (isAbono(ev.title, ev.description)) return false;
-    // Exclude social media links and junk cards
     if (isSocialOrJunk(ev.title, ev.url || ev.ticketUrl)) return false;
-    // Exclude movies/cinemas
     if (isCinemaOrMovie(ev.title, ev.description, '', ev.category)) return false;
     return true;
   });
 
   const deduplicated = deduplicateAndMergeEvents(validEvents);
-
   const finalEvents = deduplicated.sort(
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
   );
@@ -2676,7 +2406,6 @@ async function main() {
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
   const outPath = path.join(outDir, 'events.json');
-
   if (finalEvents.length === 0 && fs.existsSync(outPath)) {
     console.warn('Scraper collected 0 events; keeping previous events.json.');
     return;
