@@ -484,8 +484,12 @@ function parseEventJsonLd(html) {
 
 function isValidDetailImg(url) {
   if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('data:')) return false;
   const lower = url.toLowerCase();
   if (
+    lower.includes('logo-rojo') ||
+    lower.includes('ayto+fdm') ||
+    lower.includes('gc_button') ||
     lower.includes('logo') ||
     lower.includes('icon') ||
     lower.includes('pixel') ||
@@ -1452,9 +1456,38 @@ async function scrapeFdmValencia(page, context) {
         seenTitles.add(normTitle);
 
         const imgEl = row.querySelector('.fourcol img') || row.querySelector('img');
-        const img = imgEl
-          ? (imgEl.src || imgEl.getAttribute('data-src') || '').replace(/-\d+x\d+(\.[a-zA-Z]+)$/, '$1')
-          : null;
+        let img = null;
+        if (imgEl) {
+          // 1. Check srcset for highest resolution source
+          const srcset = imgEl.getAttribute('srcset') || imgEl.srcset;
+          if (srcset) {
+            const candidates = srcset.split(',').map((s) => {
+              const parts = s.trim().split(/\s+/);
+              const url = parts[0];
+              const width = parts[1] && parts[1].endsWith('w') ? parseInt(parts[1], 10) : 0;
+              return { url, width };
+            }).filter((c) => c.url && !c.url.startsWith('data:') && !c.url.includes('logo'));
+            if (candidates.length > 0) {
+              candidates.sort((a, b) => b.width - a.width);
+              img = candidates[0].url;
+            }
+          }
+
+          // 2. Direct src or lazy attributes
+          if (!img) {
+            const src = imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.currentSrc || imgEl.src || '';
+            if (src && !src.startsWith('data:') && !src.includes('logo')) {
+              // Strip WordPress thumbnail dimension suffix like -210x139.jpg or -300x199.jpg (preceded by hyphen)
+              img = src.replace(/-\d{2,4}x\d{2,4}(\.[a-zA-Z]+)$/, '$1');
+            }
+          }
+        }
+
+        // Force HTTPS and protocol normalization
+        if (img) {
+          if (img.startsWith('http://')) img = img.replace('http://', 'https://');
+          else if (img.startsWith('//')) img = 'https:' + img;
+        }
 
         const timeSpans = Array.from(row.querySelectorAll('.event-time'));
         const timeText = timeSpans.map((s) => (s.textContent || '').trim()).filter(Boolean).join(' ');
@@ -1477,7 +1510,7 @@ async function scrapeFdmValencia(page, context) {
       await Promise.allSettled(
         rawItems.map(async (item) => {
           try {
-            const res = await context.request.get(item.url, { timeout: 6000 });
+            const res = await context.request.get(item.url, { timeout: 8000 });
             if (res.ok()) {
               const html = await res.text();
 
@@ -1518,11 +1551,29 @@ async function scrapeFdmValencia(page, context) {
                 }
               }
 
-              if (!item.img) {
-                const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-                                html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-                if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
-                  item.img = ogMatch[1].replace(/&amp;/g, '&');
+              // Detail page image fallback / enhancement
+              let detailImg = null;
+              const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                              html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+              if (ogMatch && ogMatch[1] && isValidDetailImg(ogMatch[1])) {
+                detailImg = ogMatch[1].replace(/&amp;/g, '&');
+              }
+
+              if (!detailImg) {
+                const contentImgMatch = html.match(/<img[^>]+class=["'][^"']*(?:wp-post-image|size-page-width|attachment-full)[^"']*["'][^>]+src=["']([^"']+)["']/i) ||
+                                       html.match(/<div class="entry-content"[\s\S]*?<img[^>]+src=["']([^"']+)["']/i);
+                if (contentImgMatch && contentImgMatch[1] && isValidDetailImg(contentImgMatch[1])) {
+                  detailImg = contentImgMatch[1].replace(/&amp;/g, '&');
+                }
+              }
+
+              if (detailImg) {
+                if (detailImg.startsWith('http://')) detailImg = detailImg.replace('http://', 'https://');
+                else if (detailImg.startsWith('//')) detailImg = 'https:' + detailImg;
+                else if (detailImg.startsWith('/')) detailImg = 'https://www.fdmvalencia.es' + detailImg;
+
+                if (!item.img || !isValidDetailImg(item.img) || item.img.startsWith('data:')) {
+                  item.img = detailImg;
                 }
               }
             }
@@ -1589,6 +1640,16 @@ async function scrapeFdmValencia(page, context) {
       // Guarantee València in address string
       if (!/val[eè]ncia/i.test(fullAddress)) {
         fullAddress = `${fullAddress}, València`;
+      }
+
+      if (item.img) {
+        if (item.img.startsWith('http://')) item.img = item.img.replace('http://', 'https://');
+        else if (item.img.startsWith('//')) item.img = 'https:' + item.img;
+        else if (item.img.startsWith('/')) item.img = 'https://www.fdmvalencia.es' + item.img;
+
+        if (!isValidDetailImg(item.img)) {
+          item.img = null;
+        }
       }
 
       const finalImg = item.img || getSportsFallback(item.title);
