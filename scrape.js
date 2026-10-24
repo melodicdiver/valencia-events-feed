@@ -222,14 +222,6 @@ function getVenuePlaceholderUrl(venueName, eventTitle, category) {
     }
   }
 
-  const isMusic =
-    category === 'musica' ||
-    category === 'music' ||
-    /\b(?:concierto|conciertos|live session|live show|en concert|ac[uú]stic[oa])\b/i.test(eventTitle || '');
-  if (isMusic) {
-    return `${CDN_SALAS}/salas.liveshow_ph.png`;
-  }
-
   return null;
 }
 
