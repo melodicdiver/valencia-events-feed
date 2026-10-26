@@ -946,7 +946,8 @@ async function scrapeAuAgenda(context) {
   return events;
 }
 
-// 2b. Official Institutional Open Data: IVC
+// 2b. Official Institutional Open Data: IVC (Teatre Principal & Teatre Rialto)
+// ENHANCEMENT: Enriched with live webpage photo extraction from ivc.gva.es
 async function scrapeIvcOpenData(context) {
   console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
   const now = new Date();
@@ -1034,6 +1035,30 @@ async function scrapeIvcOpenData(context) {
         authority: 1,
       });
     }
+
+    // Live Webpage Photo Enrichment for IVC shows (Teatre Principal & Rialto)
+    if (context && events.length > 0) {
+      console.log(`Enriching ${events.length} IVC events with live page photos from ivc.gva.es...`);
+      await Promise.allSettled(
+        events.map(async (ev) => {
+          if (ev.url && ev.url.includes('ivc.gva.es')) {
+            try {
+              const pageRes = await context.request.get(ev.url, { timeout: 10000 });
+              if (pageRes.ok()) {
+                const html = await pageRes.text();
+                const photoMatch =
+                  html.match(/class=["']bloque-fotos["'][\s\S]*?<a[^>]+href=["']([^"']+\.(?:jpg|jpeg|png|webp))["']/i) ||
+                  html.match(/class=["']bloque-fotos["'][\s\S]*?<img[^>]+src=["']([^"']+\.(?:jpg|jpeg|png|webp))["']/i) ||
+                  html.match(/src=["'](https:\/\/ivc\.gva\.es\/admin\/assets\/images\/[^"']+)["']/i);
+                if (photoMatch && photoMatch[1]) {
+                  ev.imageUrl = photoMatch[1];
+                }
+              }
+            } catch (_) {}
+          }
+        })
+      );
+    }
   } catch (err) {
     console.warn(`IVC Open Data notice: ${err.message}`);
   }
@@ -1042,7 +1067,96 @@ async function scrapeIvcOpenData(context) {
   return events;
 }
 
-// 2c. IVAM
+// 2c. HUB Cultural Cabanyal
+// Scrapes culturacabanyal.com/agenda/ for deep links (#event-XXXX) & real artwork
+async function scrapeCulturaCabanyal(context) {
+  console.log('Scraping HUB Cultural Cabanyal (culturacabanyal.com/agenda/)...');
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const cutoffDate = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoffDate.toISOString().slice(0, 10);
+  const events = [];
+
+  try {
+    const res = await context.request.get('https://culturacabanyal.com/agenda/', {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      timeout: 20000,
+    });
+    if (!res.ok()) return [];
+
+    const html = await res.text();
+    const cardRegex =
+      /<div\s+class="event-card"[^>]*data-id="(\d+)"[^>]*data-title="([^"]+)"[\s\S]*?<div\s+class="event-image">[\s\S]*?<img\s+src="([^"]+)"/gi;
+
+    let match;
+    while ((match = cardRegex.exec(html)) !== null) {
+      const eventId = match[1];
+      const rawTitle = match[2].trim();
+      const imageUrl = match[3];
+
+      const cardStart = match.index;
+      const cardEnd = html.indexOf('</div>', cardStart + 1200);
+      const cardChunk = html.slice(cardStart, cardEnd !== -1 ? cardEnd + 200 : cardStart + 1500);
+
+      let category = 'exposicions';
+      if (/data-category="teatre|dansa|musica|escen"/i.test(cardChunk)) category = 'teatre';
+      else if (/data-category="musica|concert"/i.test(cardChunk)) category = 'musica';
+      else if (/data-category="exposicio"/i.test(cardChunk)) category = 'exposicions';
+
+      let startDateIso = `${todayStr}T19:00:00.000Z`;
+      let endDateIso = undefined;
+      const dateMatch = cardChunk.match(/(\d{2})-(\d{2})-(\d{4})(?:\s+al\s+(\d{2})-(\d{2})-(\d{4}))?/i);
+      if (dateMatch) {
+        const sDay = parseInt(dateMatch[1], 10);
+        const sMon = parseInt(dateMatch[2], 10);
+        const sYr = parseInt(dateMatch[3], 10);
+        startDateIso = `${sYr}-${String(sMon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}T19:00:00.000Z`;
+
+        if (dateMatch[4]) {
+          const eDay = parseInt(dateMatch[4], 10);
+          const eMon = parseInt(dateMatch[5], 10);
+          const eYr = parseInt(dateMatch[6], 10);
+          endDateIso = `${eYr}-${String(eMon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}T21:00:00.000Z`;
+        }
+      }
+
+      const effectiveEnd = (endDateIso || startDateIso).slice(0, 10);
+      if (effectiveEnd < todayStr) continue;
+      if (startDateIso.slice(0, 10) > cutoffStr) continue;
+
+      const cleanTitle = toNaturalCase(rawTitle);
+      const deepLink = `https://culturacabanyal.com/agenda/#event-${eventId}`;
+
+      events.push({
+        id: `cabanyal-${eventId}`,
+        title: cleanTitle,
+        description: `Actividad cultural en el HUB Cultural Cabanyal: ${cleanTitle}`,
+        category,
+        startDate: startDateIso,
+        endDate: endDateIso,
+        venueName: 'HUB Cultural Cabanyal',
+        address: 'Carrer de la Reina, 219, 46011 València',
+        imageUrl,
+        isFree: /Gratu/i.test(cardChunk),
+        ticketUrl: deepLink,
+        url: deepLink,
+        source: 'culturacabanyal',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`HUB Cultural Cabanyal scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official HUB Cultural Cabanyal events.`);
+  return events;
+}
+
+// 2d. IVAM
 async function scrapeIvamExposiciones(page, context) {
   console.log('Scraping IVAM (Institut Valencià d’Art Modern)...');
   const now = new Date();
@@ -1140,7 +1254,7 @@ async function scrapeIvamExposiciones(page, context) {
   return events;
 }
 
-// 2d. MuBAV
+// 2e. MuBAV
 async function scrapeMubavExposiciones(context) {
   console.log('Scraping MuBAV (Museu de Belles Arts de València)...');
   const now = new Date();
@@ -1213,7 +1327,7 @@ async function scrapeMubavExposiciones(context) {
   return events;
 }
 
-// 2e. Teatre Talia & Olympia
+// 2f. Teatre Talia & Olympia
 async function scrapeTaliaCartelera(context) {
   console.log('Scraping Teatre Talia & Teatre Olympia (Olympia Metropolitana)...');
   const now = new Date();
@@ -1341,7 +1455,7 @@ async function scrapeTaliaCartelera(context) {
   return events;
 }
 
-// 2f. La Mutant
+// 2g. La Mutant
 async function scrapeLaMutant(context) {
   console.log('Scraping La Mutant (Teatre Municipal)...');
   const now = new Date();
@@ -1421,7 +1535,6 @@ async function scrapeFdmValencia(page, context) {
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
 
   try {
-    // Navigate directly to /es/agenda/ which hosts the complete, unpaginated agenda
     await page.goto('https://www.fdmvalencia.es/es/agenda/', { 
       waitUntil: 'domcontentloaded', 
       timeout: 35000 
@@ -1450,7 +1563,6 @@ async function scrapeFdmValencia(page, context) {
         const imgEl = row.querySelector('.fourcol img') || row.querySelector('img');
         let img = null;
         if (imgEl) {
-          // 1. Check srcset for highest resolution source
           const srcset = imgEl.getAttribute('srcset') || imgEl.srcset;
           if (srcset) {
             const candidates = srcset.split(',').map((s) => {
@@ -1465,17 +1577,14 @@ async function scrapeFdmValencia(page, context) {
             }
           }
 
-          // 2. Direct src or lazy attributes
           if (!img) {
             const src = imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') || imgEl.currentSrc || imgEl.src || '';
             if (src && !src.startsWith('data:') && !src.includes('logo')) {
-              // Strip WordPress thumbnail dimension suffix like -210x139.jpg or -300x199.jpg (preceded by hyphen)
               img = src.replace(/-\d{2,4}x\d{2,4}(\.[a-zA-Z]+)$/, '$1');
             }
           }
         }
 
-        // Force HTTPS and protocol normalization
         if (img) {
           if (img.startsWith('http://')) img = img.replace('http://', 'https://');
           else if (img.startsWith('//')) img = 'https:' + img;
@@ -1543,7 +1652,6 @@ async function scrapeFdmValencia(page, context) {
                 }
               }
 
-              // Detail page image fallback / enhancement
               let detailImg = null;
               const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
                               html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
@@ -1588,7 +1696,6 @@ async function scrapeFdmValencia(page, context) {
 
       if (!startDateIso) continue;
 
-      // Fix: Multi-day ongoing check (use endDateIso if available so ongoing events like Nacra Cup aren't dropped)
       const dt = new Date(startDateIso);
       const effectiveEnd = endDateIso ? new Date(endDateIso) : dt;
       if (effectiveEnd < new Date(now.getTime() - 24 * 60 * 60 * 1000) || dt > cutoffDate) continue;
@@ -1629,7 +1736,6 @@ async function scrapeFdmValencia(page, context) {
         else if (/Jaula/i.test(item.title)) { venue = 'Ciutat de les Arts i les Ciències'; fullAddress = 'Ciutat de les Arts i les Ciències, Av. del Professor López Piñero, 7'; }
       }
 
-      // Guarantee València in address string
       if (!/val[eè]ncia/i.test(fullAddress)) {
         fullAddress = `${fullAddress}, València`;
       }
@@ -2076,6 +2182,13 @@ async function main() {
     console.error('AU Agenda error:', e.message);
   }
 
+  let cabanyalEvents = [];
+  try {
+    cabanyalEvents = await scrapeCulturaCabanyal(context);
+  } catch (e) {
+    console.error('HUB Cultural Cabanyal error:', e.message);
+  }
+
   let fdmEvents = [];
   try {
     const page = await context.newPage();
@@ -2158,6 +2271,7 @@ async function main() {
     ...ludEvents,
     ...musicEvents,
     ...ivcEvents,
+    ...cabanyalEvents,
     ...ivamEvents,
     ...mubavEvents,
     ...taliaEvents,
@@ -2384,15 +2498,29 @@ async function main() {
       base.endDate = maxEnd;
     }
 
-    if (!isDirectTicketingUrl(base.ticketUrl) && isDirectTicketingUrl(other.ticketUrl)) {
-      base.ticketUrl = other.ticketUrl;
-    }
-    if (!isDirectTicketingUrl(base.url) && isDirectTicketingUrl(other.url)) {
+    // Prefer specific deep link over generic root agenda URLs
+    if (base.url && base.url.endsWith('/agenda/') && other.url && other.url.includes('#event-')) {
       base.url = other.url;
+      base.ticketUrl = other.ticketUrl || other.url;
+    } else {
+      if (!isDirectTicketingUrl(base.ticketUrl) && isDirectTicketingUrl(other.ticketUrl)) {
+        base.ticketUrl = other.ticketUrl;
+      }
+      if (!isDirectTicketingUrl(base.url) && isDirectTicketingUrl(other.url)) {
+        base.url = other.url;
+      }
     }
 
+    // Treat venue logo placeholders and default banners as generic so real photos always override them
     const isGenericImg = (img) =>
-      !img || Object.values(CULTURAL_FALLBACKS).includes(img) || img.includes('fallback') || img.includes('placeholder');
+      !img ||
+      Object.values(CULTURAL_FALLBACKS).includes(img) ||
+      img.includes('fallback') ||
+      img.includes('placeholder') ||
+      img.includes('logos_salas') ||
+      img.includes('_ph.png') ||
+      img.includes('default');
+
     if (isGenericImg(base.imageUrl) && !isGenericImg(other.imageUrl)) {
       base.imageUrl = other.imageUrl;
     }
