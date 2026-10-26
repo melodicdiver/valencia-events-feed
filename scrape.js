@@ -1130,6 +1130,7 @@ async function scrapeCulturaCabanyal(context) {
 
       const cleanTitle = toNaturalCase(rawTitle);
       const deepLink = `https://culturacabanyal.com/agenda/#event-${eventId}`;
+      const deepLinkEs = `https://culturacabanyal.com/agenda/?lang=cas#event-${eventId}`;
 
       events.push({
         id: `cabanyal-${eventId}`,
@@ -1144,6 +1145,10 @@ async function scrapeCulturaCabanyal(context) {
         isFree: /Gratu/i.test(cardChunk),
         ticketUrl: deepLink,
         url: deepLink,
+        urlEs: deepLinkEs,
+        urlVa: deepLink,
+        ticketUrlEs: deepLinkEs,
+        ticketUrlVa: deepLink,
         source: 'culturacabanyal',
         authority: 1,
       });
@@ -2539,6 +2544,10 @@ async function main() {
 
     if (!base.address && other.address) base.address = other.address;
     if (!base.venueName && other.venueName) base.venueName = other.venueName;
+    if (!base.urlEs && other.urlEs) base.urlEs = other.urlEs;
+    if (!base.urlVa && other.urlVa) base.urlVa = other.urlVa;
+    if (!base.ticketUrlEs && other.ticketUrlEs) base.ticketUrlEs = other.ticketUrlEs;
+    if (!base.ticketUrlVa && other.ticketUrlVa) base.ticketUrlVa = other.ticketUrlVa;
 
     return base;
   }
