@@ -506,6 +506,9 @@ function cleanAuSlug(slug) {
 function cleanVenueForMatching(venue) {
   if (!venue) return '';
   let v = stripAccents(venue).toLowerCase();
+  if (/hub cultural|cabanyal|reina 121|escorxador/i.test(v)) {
+    return 'hub cultural cabanyal';
+  }
   v = v.replace(/^(teatre|teatro|sala|auditori|auditorio|palacio de las artes|palau de les arts|palau de la musica|estadio de|centre|centro)\s+/gi, '');
   v = v.replace(/\b(valencia|valència)\b/gi, '');
   return v.trim();
@@ -1119,8 +1122,17 @@ async function scrapeCulturaCabanyal(context) {
       return [];
     }
 
-    // 1. Extract JSON-LD structured data if present for rich metadata & canonical images
+    function normTitleKey(s) {
+      return (s || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    // 1. Extract JSON-LD structured data for rich metadata, descriptions & canonical images
     const jsonLdMap = new Map();
+    const ldList = [];
     const jsonLdMatch = html.match(/<script\s+type="application\/ld\+json">([\s\S]*?)<\/script>/i);
     if (jsonLdMatch) {
       try {
@@ -1129,8 +1141,9 @@ async function scrapeCulturaCabanyal(context) {
           for (const el of ldObj.itemListElement) {
             const it = el.item;
             if (it && it.name) {
-              const key = cleanTitleForComparison(it.name);
+              const key = normTitleKey(it.name);
               if (key) jsonLdMap.set(key, it);
+              ldList.push(it);
             }
           }
         }
@@ -1139,8 +1152,75 @@ async function scrapeCulturaCabanyal(context) {
       }
     }
 
+    // Precise Category Classification for HUB Cultural Cabanyal
+    function classifyCabanyal(title, discipline, about, desc) {
+      const discNorm = (discipline || '').toLowerCase();
+      const aboutNorm = (about || '').toLowerCase();
+      const titleLower = (title || '').toLowerCase();
+      const descLower = (desc || '').toLowerCase();
+      const combined = [titleLower, discNorm, aboutNorm, descLower].join(' ');
+
+      // 1. Explicit Music discipline or clear musical performances
+      if (
+        discNorm.includes('música') || discNorm.includes('musica') ||
+        aboutNorm.includes('música') || aboutNorm.includes('musica') ||
+        /\b(?:concert|concierto|recital|ac[uú]stic|acustics|nadalenc|nadales|cantant|violinista|guitarra|piano|en concert|en concierto)\b/i.test(titleLower) ||
+        /\b(?:cor\s+femen[ií]|nadales i melodies|interpretaran nadales|cantant i violinista|projecte musical)\b/i.test(descLower)
+      ) {
+        if (!/\b(?:obra\s+de\s+teatre|dramat[uú]rgia|lectura\s+dram[aà]tica)\b/i.test(combined)) {
+          return 'musica';
+        }
+      }
+
+      // 2. Performing Arts (Teatre, Dansa, Arts Escèniques, Standup Comedy, Clown, Circus, Dramatic readings)
+      if (
+        discNorm.includes('escèn') || discNorm.includes('escen') ||
+        aboutNorm.includes('escèn') || aboutNorm.includes('escen') ||
+        /\b(?:arts?\s+esc[eè]niques?|teatre?|teatral|dansa|dance|danza|circ|clown|stand[\s-]?up|com[eè]dia|mon[oò]leg|titelles|marionet)\b/i.test(discNorm + ' ' + aboutNorm) ||
+        /\b(?:lectura\s+dram[aà]tica|stand[\s-]?up\s+comedy|open\s+de\s+comedia|dansa|danza|teatre?|teatral|improvisaci[oó]\s+teatral)\b/i.test(titleLower) ||
+        /\b(?:lectura\s+dram[aà]tica|pe[cç]a\s+que\s+s’alça\s+com\s+una\s+paradoxa\s+que\s+dansa|dansa\s+per\s+a\s+dones|improvisaci[oó]\s+teatral|obra\s+de\s+teatre|espectacle|estrena)\b/i.test(descLower) ||
+        /\b(?:samba|dancing\s+queen|impros[aà]vies|gestotop[ií]as|mom,\s+i\s+am\s+a\s+rich\s+man|paco\s+panjabi)\b/i.test(titleLower)
+      ) {
+        return 'teatre';
+      }
+
+      // 3. Oral Arts / Storytelling / Children narration
+      if (/\b(?:animaci[oó]\s+lectora|contacontes|cuentacuentos|narraci[oó]\s+oral)\b/i.test(combined)) {
+        return 'teatre';
+      }
+
+      // 4. Visual Arts / Exhibitions (Exposició, Arts Visuals, Photography, Painting, Illustration, Craft displays)
+      if (
+        discNorm.includes('exposici') || aboutNorm.includes('exposici') ||
+        discNorm.includes('arts visuals') || aboutNorm.includes('arts visuals') ||
+        /\b(?:exposici[oó]|mostra|fotograf[ií]a|pintura|il·lustraci[oó]|taulellet|brodat|ganxet|crochet|arteterapia)\b/i.test(titleLower) ||
+        /\b(?:exposici[oó]|fotograf[ií]a\s+m[oò]bil|obres\s+de|llibre\s+t[aà]ctil|taulellet|il·lustracions|arteterapia)\b/i.test(descLower)
+      ) {
+        return 'exposicions';
+      }
+
+      // 5. Literature & Spoken Word / Presentations (Book clubs, poetry, book launches)
+      if (
+        discNorm.includes('literatur') || aboutNorm.includes('literatur') ||
+        /\b(?:llibre|novel·la|c[oò]mic|lectura|poesia|poeta|machado)\b/i.test(titleLower)
+      ) {
+        if (/\b(?:c[oò]mic|il·lustr)\b/i.test(titleLower + ' ' + descLower)) {
+          return 'exposicions'; // Comic and graphic arts
+        }
+        return 'teatre'; // Spoken word, dramatic readings, poetry
+      }
+
+      // 6. Workshop fallback (Taller)
+      if (/\btaller\b/i.test(combined)) {
+        if (/\b(?:dansa|danza|moviment|teatre|impro)\b/i.test(combined)) return 'teatre';
+        if (/\b(?:m[uú]sic|cantar|cor\b|veu)\b/i.test(combined)) return 'musica';
+        return 'exposicions'; // Creative craft & visual workshops
+      }
+
+      return 'exposicions';
+    }
+
     // 2. Parse event cards from HTML
-    // Note: culturacabanyal.com uses data-id="wp-XXXX" or data-id="XXXX"
     const cardRegex =
       /<div\s+class="event-card"[^>]*data-id="(?:wp-)?(\d+)"[^>]*>([\s\S]*?)(?=<div\s+class="event-card"|<\/div>\s*<\/div>\s*<\/div>\s*<\/main>|$)/gi;
 
@@ -1157,26 +1237,16 @@ async function scrapeCulturaCabanyal(context) {
       const titleMatch =
         cardChunk.match(/<h3\s+class="event-title">([^<]+)<\/h3>/i) ||
         cardChunk.match(/alt="([^"]+)"/i);
-      const rawTitle = titleMatch ? titleMatch[1].trim() : '';
+      let rawTitle = titleMatch ? titleMatch[1].trim() : '';
       if (!rawTitle) continue;
 
-      // Extract image URL
-      let imageUrl = '';
-      const imgMatch = cardChunk.match(/<img[^>]*src="([^"]+)"/i);
-      if (imgMatch) {
-        let rawSrc = imgMatch[1].replace(/&amp;/g, '&');
-        if (rawSrc.includes('_next/image?url=')) {
-          const uMatch = rawSrc.match(/url=([^&]+)/);
-          if (uMatch) {
-            const decoded = decodeURIComponent(uMatch[1]);
-            imageUrl = decoded.startsWith('http') ? decoded : `https://culturacabanyal.com${decoded}`;
-          } else {
-            imageUrl = rawSrc.startsWith('http') ? rawSrc : `https://culturacabanyal.com${rawSrc}`;
-          }
-        } else {
-          imageUrl = rawSrc.startsWith('http') ? rawSrc : `https://culturacabanyal.com${rawSrc}`;
-        }
+      // Filter out self-referential venue info card (e.g., #2252)
+      if (/^HCC\s+Hub\s+Cultural\s+Cabanyal$/i.test(rawTitle) || eventId === '2252') {
+        continue;
       }
+
+      // Clean broken UTF-8 characters if any
+      rawTitle = rawTitle.replace(/[\uFFFD]/g, 'à');
 
       // Discipline & author/info
       const discMatch = cardChunk.match(/class="professional-discipline">([^<]+)<\/span>/i);
@@ -1185,27 +1255,51 @@ async function scrapeCulturaCabanyal(context) {
       const infoMatch = cardChunk.match(/<p\s+class="event-info">([^<]+)<\/p>/i);
       const artistOrAuthor = infoMatch ? infoMatch[1].trim() : '';
 
-      // Match with JSON-LD
-      const titleKey = cleanTitleForComparison(rawTitle);
-      const ld = jsonLdMap.get(titleKey);
+      // Match with JSON-LD (exact key first, then fuzzy fallback)
+      const titleKey = normTitleKey(rawTitle);
+      let ld = jsonLdMap.get(titleKey);
+      if (!ld) {
+        ld = ldList.find((it) => {
+          const k2 = normTitleKey(it.name);
+          return k2 === titleKey || (k2.length > 5 && (k2.includes(titleKey) || titleKey.includes(k2)));
+        });
+      }
 
-      // Best image: JSON-LD full photo or decoded Next.js photo
-      let finalImage = (ld && Array.isArray(ld.image) && ld.image[0]) || imageUrl;
-      if (finalImage && finalImage.startsWith('/')) {
-        finalImage = `https://culturacabanyal.com${finalImage}`;
+      // Canonical title
+      const cleanTitle = ld?.name || toNaturalCase(rawTitle);
+
+      // Extract image URL (JSON-LD direct full artwork or decoded Next.js photo)
+      let imageUrl = '';
+      if (ld && Array.isArray(ld.image) && ld.image[0]) {
+        imageUrl = ld.image[0];
+      } else if (ld && typeof ld.image === 'string') {
+        imageUrl = ld.image;
+      }
+
+      if (!imageUrl) {
+        const imgMatch = cardChunk.match(/<img[^>]*src="([^"]+)"/i);
+        if (imgMatch) {
+          let rawSrc = imgMatch[1].replace(/&amp;/g, '&');
+          if (rawSrc.includes('_next/image?url=')) {
+            const uMatch = rawSrc.match(/url=([^&]+)/);
+            if (uMatch) {
+              const decoded = decodeURIComponent(uMatch[1]);
+              imageUrl = decoded.startsWith('http') ? decoded : `https://culturacabanyal.com${decoded}`;
+            } else {
+              imageUrl = rawSrc.startsWith('http') ? rawSrc : `https://culturacabanyal.com${rawSrc}`;
+            }
+          } else {
+            imageUrl = rawSrc.startsWith('http') ? rawSrc : `https://culturacabanyal.com${rawSrc}`;
+          }
+        }
+      }
+
+      if (imageUrl && imageUrl.startsWith('/')) {
+        imageUrl = `https://culturacabanyal.com${imageUrl}`;
       }
 
       // Category classification
-      const discStr = (ld?.about || discipline || '').toLowerCase();
-      const titleLower = rawTitle.toLowerCase();
-      let category = 'exposicions';
-      if (/esc[eè]n|teatr|dansa|dram|circ|clown/i.test(discStr) || /teatr|obra|dansa/i.test(titleLower)) {
-        category = 'teatre';
-      } else if (/m[uú]sic|concert|cant|ac[uú]stic/i.test(discStr) || /concert|concierto|ac[uú]stic/i.test(titleLower)) {
-        category = 'musica';
-      } else if (/exposici[oó]|arts visual/i.test(discStr)) {
-        category = 'exposicions';
-      }
+      const category = classifyCabanyal(cleanTitle, discipline, ld?.about || '', ld?.description || '');
 
       // Start date parsing
       let startDateIso = '';
@@ -1223,12 +1317,13 @@ async function scrapeCulturaCabanyal(context) {
         if (dayMatch && monMatch) {
           const months = {
             GEN: 1, ENE: 1, FEB: 2, MAR: 3, ABR: 4, MAI: 5, MAY: 5, JUN: 6,
-            JUL: 7, AGO: 8, AGU: 8, SET: 9, SEP: 9, OCT: 10, NOV: 11, DES: 12, DIC: 12
+            JUL: 7, AGO: 8, AGU: 8, SET: 9, SEP: 9, OCT: 10, NOV: 11, DES: 12, DIC: 12,
           };
           const mNum = months[monMatch[1].toUpperCase()] || 11;
           const dNum = parseInt(dayMatch[1], 10);
-          const yNum = now.getFullYear();
-          const time = timeMatch ? timeMatch[1] : '20:00';
+          let yNum = now.getFullYear();
+          if (mNum < (now.getMonth() + 1)) yNum += 1;
+          const time = timeMatch ? timeMatch[1] : '19:00';
           const [hh, mm] = time.split(':');
           const dt = new Date(yNum, mNum - 1, dNum, parseInt(hh, 10), parseInt(mm, 10));
           startDateIso = dt.toISOString();
@@ -1240,7 +1335,12 @@ async function scrapeCulturaCabanyal(context) {
       let endDateIso = undefined;
       if (ld?.endDate) {
         try {
-          endDateIso = new Date(ld.endDate).toISOString();
+          const rawEnd = ld.endDate;
+          if (/^\d{4}-\d{2}-\d{2}$/.test(rawEnd)) {
+            endDateIso = `${rawEnd}T20:00:00.000Z`;
+          } else {
+            endDateIso = new Date(rawEnd).toISOString();
+          }
         } catch {}
       }
 
@@ -1248,9 +1348,17 @@ async function scrapeCulturaCabanyal(context) {
       if (effectiveEnd < todayStr) continue;
       if (startDateIso.slice(0, 10) > cutoffStr) continue;
 
-      const cleanTitle = toNaturalCase(rawTitle);
       const deepLink = `https://culturacabanyal.com/agenda#event-${eventId}`;
       const deepLinkEs = `https://culturacabanyal.com/agenda/?lang=cas#event-${eventId}`;
+
+      // Venue building address
+      const locName = ld?.location?.name || '';
+      let address = 'Carrer de la Reina, 219, 46011 València';
+      if (/reina\s*121/i.test(locName)) {
+        address = 'Carrer de la Reina, 121, 46011 València';
+      } else if (/escorxador/i.test(locName)) {
+        address = 'Carrer de Sant Pere, 37, 46011 València';
+      }
 
       const desc =
         ld?.description ||
@@ -1258,7 +1366,8 @@ async function scrapeCulturaCabanyal(context) {
           ? `Actividad cultural en el HUB Cultural Cabanyal con ${artistOrAuthor}: ${cleanTitle}`
           : `Actividad cultural en el HUB Cultural Cabanyal: ${cleanTitle}`);
 
-      const isFree = ld?.offers?.price === 0 || /Gratu/i.test(cardChunk);
+      const isFree = ld?.offers?.price === 0 || /gratu[iï]t|gratis/i.test(cardChunk);
+      const ticketPrice = isFree ? undefined : (ld?.offers?.price ? `${ld.offers.price} €` : undefined);
 
       events.push({
         id: `cabanyal-${eventId}`,
@@ -1268,9 +1377,10 @@ async function scrapeCulturaCabanyal(context) {
         startDate: startDateIso,
         endDate: endDateIso,
         venueName: 'HUB Cultural Cabanyal',
-        address: 'Carrer de la Reina, 219, 46011 València',
-        imageUrl: finalImage,
+        address,
+        imageUrl,
         isFree,
+        ticketPrice,
         ticketUrl: deepLink,
         url: deepLink,
         urlEs: deepLinkEs,
@@ -2589,7 +2699,7 @@ async function main() {
 
     if (sameVenue && datesMatch) {
       if (cleanTitleForComparison(e1.title) === cleanTitleForComparison(e2.title)) return true;
-      if (e1.category === e2.category && areTitlesSimilar(e1.title, e2.title, sameDate)) return true;
+      if (areTitlesSimilar(e1.title, e2.title, sameDate)) return true;
 
       const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
       const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
@@ -2640,10 +2750,21 @@ async function main() {
       u.endsWith('/agenda/') ||
       /culturacabanyal\.com\/agenda\/?$/i.test(u);
 
-    if (isGenericAgendaUrl(base.url) && other.url && !isGenericAgendaUrl(other.url)) {
+    // Prefer culturacabanyal deep link (#event-XXXX) over any generic agenda or aggregator link
+    if (other.url && other.url.includes('culturacabanyal.com/agenda#event-')) {
+      base.url = other.url;
+      base.ticketUrl = other.ticketUrl || other.url;
+      if (other.urlEs) base.urlEs = other.urlEs;
+      if (other.urlVa) base.urlVa = other.urlVa;
+      if (other.ticketUrlEs) base.ticketUrlEs = other.ticketUrlEs;
+      if (other.ticketUrlVa) base.ticketUrlVa = other.ticketUrlVa;
+    } else if (isGenericAgendaUrl(base.url) && other.url && !isGenericAgendaUrl(other.url)) {
       base.url = other.url;
     }
-    if (isGenericAgendaUrl(base.ticketUrl) && other.ticketUrl && !isGenericAgendaUrl(other.ticketUrl)) {
+
+    if (other.ticketUrl && other.ticketUrl.includes('culturacabanyal.com/agenda#event-')) {
+      base.ticketUrl = other.ticketUrl;
+    } else if (isGenericAgendaUrl(base.ticketUrl) && other.ticketUrl && !isGenericAgendaUrl(other.ticketUrl)) {
       base.ticketUrl = other.ticketUrl || other.url;
     } else {
       if (!isDirectTicketingUrl(base.ticketUrl) && isDirectTicketingUrl(other.ticketUrl)) {
@@ -2652,6 +2773,13 @@ async function main() {
       if (!isDirectTicketingUrl(base.url) && isDirectTicketingUrl(other.url)) {
         base.url = other.url;
       }
+    }
+
+    // If other is official culturacabanyal primary source, preserve its source, id, and category
+    if (other.source === 'culturacabanyal' && base.source !== 'culturacabanyal') {
+      base.source = other.source;
+      base.id = other.id;
+      base.category = other.category;
     }
 
     // Treat venue logo placeholders and default banners as generic so real photos always override them
