@@ -1268,6 +1268,22 @@ async function scrapeCulturaCabanyal(context) {
       // Canonical title
       const cleanTitle = ld?.name || toNaturalCase(rawTitle);
 
+      // Filter out participatory workshops, hobby courses, and multi-session classes (Tallers)
+      // Only include spectator events: Escénicas / Performing Arts & Comedy, Música, and Exposiciones
+      const isWorkshop =
+        /taller/i.test(discipline) ||
+        /taller/i.test(ld?.about || '') ||
+        /\b(?:taller|talleres|curs|curso)\b/i.test(rawTitle) ||
+        /\b(?:taller|talleres|curs|curso)\b/i.test(cleanTitle) ||
+        /\b\d+\s+sessions?\b/i.test(rawTitle) ||
+        /\b\d+\s+sessions?\b/i.test(cleanTitle) ||
+        /ganchilleras|dancing queen|reines de samba|impros[aà]vies/i.test(rawTitle) ||
+        /ganchilleras|dancing queen|reines de samba|impros[aà]vies/i.test(cleanTitle);
+
+      if (isWorkshop) {
+        continue;
+      }
+
       // Extract image URL (JSON-LD direct full artwork or decoded Next.js photo)
       let imageUrl = '';
       if (ld && Array.isArray(ld.image) && ld.image[0]) {
