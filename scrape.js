@@ -1068,60 +1068,180 @@ async function scrapeIvcOpenData(context) {
 }
 
 // 2c. HUB Cultural Cabanyal
-// Scrapes culturacabanyal.com/agenda/ for deep links (#event-XXXX) & real artwork
+// Scrapes culturacabanyal.com/agenda for deep links (#event-XXXX) & real artwork
 async function scrapeCulturaCabanyal(context) {
-  console.log('Scraping HUB Cultural Cabanyal (culturacabanyal.com/agenda/)...');
+  console.log('Scraping HUB Cultural Cabanyal (culturacabanyal.com/agenda)...');
   const now = new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const cutoffDate = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+  const cutoffDate = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
   const cutoffStr = cutoffDate.toISOString().slice(0, 10);
   const events = [];
 
   try {
-    const res = await context.request.get('https://culturacabanyal.com/agenda/', {
-      headers: {
-        'Accept': 'text/html,application/xhtml+xml',
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      },
-      timeout: 20000,
-    });
-    if (!res.ok()) return [];
+    let html = '';
+    const targetUrl = 'https://culturacabanyal.com/agenda';
 
-    const html = await res.text();
+    if (context && context.request && typeof context.request.get === 'function') {
+      try {
+        const res = await context.request.get(targetUrl, {
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept-Language': 'ca,es;q=0.9,en;q=0.8',
+          },
+          timeout: 25000,
+        });
+        if (res.ok()) {
+          html = await res.text();
+        }
+      } catch (reqErr) {
+        console.warn(`Playwright request fetch notice: ${reqErr.message}`);
+      }
+    }
+
+    if (!html && typeof fetch === 'function') {
+      const res = await fetch(targetUrl, {
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept-Language': 'ca,es;q=0.9,en;q=0.8',
+        },
+      });
+      if (res.ok) {
+        html = await res.text();
+      }
+    }
+
+    if (!html) {
+      console.warn('HUB Cultural Cabanyal: unable to retrieve HTML');
+      return [];
+    }
+
+    // 1. Extract JSON-LD structured data if present for rich metadata & canonical images
+    const jsonLdMap = new Map();
+    const jsonLdMatch = html.match(/<script\s+type="application\/ld\+json">([\s\S]*?)<\/script>/i);
+    if (jsonLdMatch) {
+      try {
+        const ldObj = JSON.parse(jsonLdMatch[1]);
+        if (Array.isArray(ldObj.itemListElement)) {
+          for (const el of ldObj.itemListElement) {
+            const it = el.item;
+            if (it && it.name) {
+              const key = cleanTitleForComparison(it.name);
+              if (key) jsonLdMap.set(key, it);
+            }
+          }
+        }
+      } catch (ldErr) {
+        console.warn(`HUB Cultural Cabanyal JSON-LD parse notice: ${ldErr.message}`);
+      }
+    }
+
+    // 2. Parse event cards from HTML
+    // Note: culturacabanyal.com uses data-id="wp-XXXX" or data-id="XXXX"
     const cardRegex =
-      /<div\s+class="event-card"[^>]*data-id="(\d+)"[^>]*data-title="([^"]+)"[\s\S]*?<div\s+class="event-image">[\s\S]*?<img\s+src="([^"]+)"/gi;
+      /<div\s+class="event-card"[^>]*data-id="(?:wp-)?(\d+)"[^>]*>([\s\S]*?)(?=<div\s+class="event-card"|<\/div>\s*<\/div>\s*<\/div>\s*<\/main>|$)/gi;
 
     let match;
+    const seenIds = new Set();
+
     while ((match = cardRegex.exec(html)) !== null) {
       const eventId = match[1];
-      const rawTitle = match[2].trim();
-      const imageUrl = match[3];
+      if (seenIds.has(eventId)) continue;
+      seenIds.add(eventId);
 
-      const cardStart = match.index;
-      const cardEnd = html.indexOf('</div>', cardStart + 1200);
-      const cardChunk = html.slice(cardStart, cardEnd !== -1 ? cardEnd + 200 : cardStart + 1500);
+      const cardChunk = match[2];
 
-      let category = 'exposicions';
-      if (/data-category="teatre|dansa|musica|escen"/i.test(cardChunk)) category = 'teatre';
-      else if (/data-category="musica|concert"/i.test(cardChunk)) category = 'musica';
-      else if (/data-category="exposicio"/i.test(cardChunk)) category = 'exposicions';
+      const titleMatch =
+        cardChunk.match(/<h3\s+class="event-title">([^<]+)<\/h3>/i) ||
+        cardChunk.match(/alt="([^"]+)"/i);
+      const rawTitle = titleMatch ? titleMatch[1].trim() : '';
+      if (!rawTitle) continue;
 
-      let startDateIso = `${todayStr}T19:00:00.000Z`;
-      let endDateIso = undefined;
-      const dateMatch = cardChunk.match(/(\d{2})-(\d{2})-(\d{4})(?:\s+al\s+(\d{2})-(\d{2})-(\d{4}))?/i);
-      if (dateMatch) {
-        const sDay = parseInt(dateMatch[1], 10);
-        const sMon = parseInt(dateMatch[2], 10);
-        const sYr = parseInt(dateMatch[3], 10);
-        startDateIso = `${sYr}-${String(sMon).padStart(2, '0')}-${String(sDay).padStart(2, '0')}T19:00:00.000Z`;
-
-        if (dateMatch[4]) {
-          const eDay = parseInt(dateMatch[4], 10);
-          const eMon = parseInt(dateMatch[5], 10);
-          const eYr = parseInt(dateMatch[6], 10);
-          endDateIso = `${eYr}-${String(eMon).padStart(2, '0')}-${String(eDay).padStart(2, '0')}T21:00:00.000Z`;
+      // Extract image URL
+      let imageUrl = '';
+      const imgMatch = cardChunk.match(/<img[^>]*src="([^"]+)"/i);
+      if (imgMatch) {
+        let rawSrc = imgMatch[1].replace(/&amp;/g, '&');
+        if (rawSrc.includes('_next/image?url=')) {
+          const uMatch = rawSrc.match(/url=([^&]+)/);
+          if (uMatch) {
+            const decoded = decodeURIComponent(uMatch[1]);
+            imageUrl = decoded.startsWith('http') ? decoded : `https://culturacabanyal.com${decoded}`;
+          } else {
+            imageUrl = rawSrc.startsWith('http') ? rawSrc : `https://culturacabanyal.com${rawSrc}`;
+          }
+        } else {
+          imageUrl = rawSrc.startsWith('http') ? rawSrc : `https://culturacabanyal.com${rawSrc}`;
         }
+      }
+
+      // Discipline & author/info
+      const discMatch = cardChunk.match(/class="professional-discipline">([^<]+)<\/span>/i);
+      const discipline = discMatch ? discMatch[1].trim() : '';
+
+      const infoMatch = cardChunk.match(/<p\s+class="event-info">([^<]+)<\/p>/i);
+      const artistOrAuthor = infoMatch ? infoMatch[1].trim() : '';
+
+      // Match with JSON-LD
+      const titleKey = cleanTitleForComparison(rawTitle);
+      const ld = jsonLdMap.get(titleKey);
+
+      // Best image: JSON-LD full photo or decoded Next.js photo
+      let finalImage = (ld && Array.isArray(ld.image) && ld.image[0]) || imageUrl;
+      if (finalImage && finalImage.startsWith('/')) {
+        finalImage = `https://culturacabanyal.com${finalImage}`;
+      }
+
+      // Category classification
+      const discStr = (ld?.about || discipline || '').toLowerCase();
+      const titleLower = rawTitle.toLowerCase();
+      let category = 'exposicions';
+      if (/esc[eè]n|teatr|dansa|dram|circ|clown/i.test(discStr) || /teatr|obra|dansa/i.test(titleLower)) {
+        category = 'teatre';
+      } else if (/m[uú]sic|concert|cant|ac[uú]stic/i.test(discStr) || /concert|concierto|ac[uú]stic/i.test(titleLower)) {
+        category = 'musica';
+      } else if (/exposici[oó]|arts visual/i.test(discStr)) {
+        category = 'exposicions';
+      }
+
+      // Start date parsing
+      let startDateIso = '';
+      if (ld?.startDate) {
+        try {
+          startDateIso = new Date(ld.startDate).toISOString();
+        } catch {}
+      }
+
+      if (!startDateIso) {
+        const dayMatch = cardChunk.match(/class="event-date-day"[^>]*>(\d{1,2})<\/span>/i);
+        const monMatch = cardChunk.match(/class="event-date-month"[^>]*>([A-Z]{3,4})<\/span>/i);
+        const timeMatch = cardChunk.match(/fa-clock<\/i>\s*(?:<!-- -->)?\s*(\d{1,2}:\d{2})/i);
+
+        if (dayMatch && monMatch) {
+          const months = {
+            GEN: 1, ENE: 1, FEB: 2, MAR: 3, ABR: 4, MAI: 5, MAY: 5, JUN: 6,
+            JUL: 7, AGO: 8, AGU: 8, SET: 9, SEP: 9, OCT: 10, NOV: 11, DES: 12, DIC: 12
+          };
+          const mNum = months[monMatch[1].toUpperCase()] || 11;
+          const dNum = parseInt(dayMatch[1], 10);
+          const yNum = now.getFullYear();
+          const time = timeMatch ? timeMatch[1] : '20:00';
+          const [hh, mm] = time.split(':');
+          const dt = new Date(yNum, mNum - 1, dNum, parseInt(hh, 10), parseInt(mm, 10));
+          startDateIso = dt.toISOString();
+        } else {
+          startDateIso = `${todayStr}T19:00:00.000Z`;
+        }
+      }
+
+      let endDateIso = undefined;
+      if (ld?.endDate) {
+        try {
+          endDateIso = new Date(ld.endDate).toISOString();
+        } catch {}
       }
 
       const effectiveEnd = (endDateIso || startDateIso).slice(0, 10);
@@ -1129,20 +1249,28 @@ async function scrapeCulturaCabanyal(context) {
       if (startDateIso.slice(0, 10) > cutoffStr) continue;
 
       const cleanTitle = toNaturalCase(rawTitle);
-      const deepLink = `https://culturacabanyal.com/agenda/#event-${eventId}`;
+      const deepLink = `https://culturacabanyal.com/agenda#event-${eventId}`;
       const deepLinkEs = `https://culturacabanyal.com/agenda/?lang=cas#event-${eventId}`;
+
+      const desc =
+        ld?.description ||
+        (artistOrAuthor
+          ? `Actividad cultural en el HUB Cultural Cabanyal con ${artistOrAuthor}: ${cleanTitle}`
+          : `Actividad cultural en el HUB Cultural Cabanyal: ${cleanTitle}`);
+
+      const isFree = ld?.offers?.price === 0 || /Gratu/i.test(cardChunk);
 
       events.push({
         id: `cabanyal-${eventId}`,
         title: cleanTitle,
-        description: `Actividad cultural en el HUB Cultural Cabanyal: ${cleanTitle}`,
+        description: desc,
         category,
         startDate: startDateIso,
         endDate: endDateIso,
         venueName: 'HUB Cultural Cabanyal',
         address: 'Carrer de la Reina, 219, 46011 València',
-        imageUrl,
-        isFree: /Gratu/i.test(cardChunk),
+        imageUrl: finalImage,
+        isFree,
         ticketUrl: deepLink,
         url: deepLink,
         urlEs: deepLinkEs,
@@ -2444,9 +2572,9 @@ async function main() {
   }
 
   function areEventsDuplicates(e1, e2) {
-    if (e1.category !== e2.category) return false;
-
-    if (e1.category === 'esports') {
+    const isEsports = e1.category === 'esports' || e2.category === 'esports';
+    if (isEsports) {
+      if (e1.category !== e2.category) return false;
       return (
         cleanTitleForComparison(e1.title) === cleanTitleForComparison(e2.title) &&
         (e1.startDate || '').slice(0, 10) === (e2.startDate || '').slice(0, 10)
@@ -2460,7 +2588,8 @@ async function main() {
     const datesMatch = sameDate || datesOverlapOrNearby(e1.startDate, e1.endDate, e2.startDate, e2.endDate);
 
     if (sameVenue && datesMatch) {
-      if (areTitlesSimilar(e1.title, e2.title, sameDate)) return true;
+      if (cleanTitleForComparison(e1.title) === cleanTitleForComparison(e2.title)) return true;
+      if (e1.category === e2.category && areTitlesSimilar(e1.title, e2.title, sameDate)) return true;
 
       const slug1 = extractSpecificSlug(e1.ticketUrl || e1.url);
       const slug2 = extractSpecificSlug(e2.ticketUrl || e2.url);
@@ -2504,8 +2633,17 @@ async function main() {
     }
 
     // Prefer specific deep link over generic root agenda URLs
-    if (base.url && base.url.endsWith('/agenda/') && other.url && other.url.includes('#event-')) {
+    const isGenericAgendaUrl = (u) =>
+      !u ||
+      u === '#' ||
+      u.endsWith('/agenda') ||
+      u.endsWith('/agenda/') ||
+      /culturacabanyal\.com\/agenda\/?$/i.test(u);
+
+    if (isGenericAgendaUrl(base.url) && other.url && !isGenericAgendaUrl(other.url)) {
       base.url = other.url;
+    }
+    if (isGenericAgendaUrl(base.ticketUrl) && other.ticketUrl && !isGenericAgendaUrl(other.ticketUrl)) {
       base.ticketUrl = other.ticketUrl || other.url;
     } else {
       if (!isDirectTicketingUrl(base.ticketUrl) && isDirectTicketingUrl(other.ticketUrl)) {
