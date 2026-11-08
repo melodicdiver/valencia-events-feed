@@ -560,7 +560,7 @@ function extractSpecificSlug(url) {
 function isDirectTicketingUrl(url) {
   if (!url || url === '#') return false;
   return (
-    /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com/i.test(url) &&
+    /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com|oneboxtds\.com/i.test(url) &&
     !/au-agenda\.com\/evento/i.test(url)
   );
 }
@@ -950,7 +950,6 @@ async function scrapeAuAgenda(context) {
 }
 
 // 2b. Official Institutional Open Data: IVC (Teatre Principal & Teatre Rialto)
-// ENHANCEMENT: Enriched with live webpage photo extraction from ivc.gva.es
 async function scrapeIvcOpenData(context) {
   console.log('Scraping IVC Open Data (Teatre Principal, Rialto & Les Arts)...');
   const now = new Date();
@@ -1071,7 +1070,6 @@ async function scrapeIvcOpenData(context) {
 }
 
 // 2c. HUB Cultural Cabanyal
-// Scrapes culturacabanyal.com/agenda for deep links (#event-XXXX) & real artwork
 async function scrapeCulturaCabanyal(context) {
   console.log('Scraping HUB Cultural Cabanyal (culturacabanyal.com/agenda)...');
   const now = new Date();
@@ -1130,7 +1128,6 @@ async function scrapeCulturaCabanyal(context) {
         .replace(/[^a-z0-9]/g, '');
     }
 
-    // 1. Extract JSON-LD structured data for rich metadata, descriptions & canonical images
     const jsonLdMap = new Map();
     const ldList = [];
     const jsonLdMatch = html.match(/<script\s+type="application\/ld\+json">([\s\S]*?)<\/script>/i);
@@ -1152,7 +1149,6 @@ async function scrapeCulturaCabanyal(context) {
       }
     }
 
-    // Precise Category Classification for HUB Cultural Cabanyal
     function classifyCabanyal(title, discipline, about, desc) {
       const discNorm = (discipline || '').toLowerCase();
       const aboutNorm = (about || '').toLowerCase();
@@ -1160,7 +1156,6 @@ async function scrapeCulturaCabanyal(context) {
       const descLower = (desc || '').toLowerCase();
       const combined = [titleLower, discNorm, aboutNorm, descLower].join(' ');
 
-      // 1. Explicit Music discipline or clear musical performances
       if (
         discNorm.includes('música') || discNorm.includes('musica') ||
         aboutNorm.includes('música') || aboutNorm.includes('musica') ||
@@ -1172,7 +1167,6 @@ async function scrapeCulturaCabanyal(context) {
         }
       }
 
-      // 2. Performing Arts (Teatre, Dansa, Arts Escèniques, Standup Comedy, Clown, Circus, Dramatic readings)
       if (
         discNorm.includes('escèn') || discNorm.includes('escen') ||
         aboutNorm.includes('escèn') || aboutNorm.includes('escen') ||
@@ -1184,12 +1178,10 @@ async function scrapeCulturaCabanyal(context) {
         return 'teatre';
       }
 
-      // 3. Oral Arts / Storytelling / Children narration
       if (/\b(?:animaci[oó]\s+lectora|contacontes|cuentacuentos|narraci[oó]\s+oral)\b/i.test(combined)) {
         return 'teatre';
       }
 
-      // 4. Visual Arts / Exhibitions (Exposició, Arts Visuals, Photography, Painting, Illustration, Craft displays)
       if (
         discNorm.includes('exposici') || aboutNorm.includes('exposici') ||
         discNorm.includes('arts visuals') || aboutNorm.includes('arts visuals') ||
@@ -1199,28 +1191,25 @@ async function scrapeCulturaCabanyal(context) {
         return 'exposicions';
       }
 
-      // 5. Literature & Spoken Word / Presentations (Book clubs, poetry, book launches)
       if (
         discNorm.includes('literatur') || aboutNorm.includes('literatur') ||
         /\b(?:llibre|novel·la|c[oò]mic|lectura|poesia|poeta|machado)\b/i.test(titleLower)
       ) {
         if (/\b(?:c[oò]mic|il·lustr)\b/i.test(titleLower + ' ' + descLower)) {
-          return 'exposicions'; // Comic and graphic arts
+          return 'exposicions';
         }
-        return 'teatre'; // Spoken word, dramatic readings, poetry
+        return 'teatre';
       }
 
-      // 6. Workshop fallback (Taller)
       if (/\btaller\b/i.test(combined)) {
         if (/\b(?:dansa|danza|moviment|teatre|impro)\b/i.test(combined)) return 'teatre';
         if (/\b(?:m[uú]sic|cantar|cor\b|veu)\b/i.test(combined)) return 'musica';
-        return 'exposicions'; // Creative craft & visual workshops
+        return 'exposicions';
       }
 
       return 'exposicions';
     }
 
-    // 2. Parse event cards from HTML
     const cardRegex =
       /<div\s+class="event-card"[^>]*data-id="(?:wp-)?(\d+)"[^>]*>([\s\S]*?)(?=<div\s+class="event-card"|<\/div>\s*<\/div>\s*<\/div>\s*<\/main>|$)/gi;
 
@@ -1240,22 +1229,18 @@ async function scrapeCulturaCabanyal(context) {
       let rawTitle = titleMatch ? titleMatch[1].trim() : '';
       if (!rawTitle) continue;
 
-      // Filter out self-referential venue info card (e.g., #2252)
       if (/^HCC\s+Hub\s+Cultural\s+Cabanyal$/i.test(rawTitle) || eventId === '2252') {
         continue;
       }
 
-      // Clean broken UTF-8 characters if any
       rawTitle = rawTitle.replace(/[\uFFFD]/g, 'à');
 
-      // Discipline & author/info
       const discMatch = cardChunk.match(/class="professional-discipline">([^<]+)<\/span>/i);
       const discipline = discMatch ? discMatch[1].trim() : '';
 
       const infoMatch = cardChunk.match(/<p\s+class="event-info">([^<]+)<\/p>/i);
       const artistOrAuthor = infoMatch ? infoMatch[1].trim() : '';
 
-      // Match with JSON-LD (exact key first, then fuzzy fallback)
       const titleKey = normTitleKey(rawTitle);
       let ld = jsonLdMap.get(titleKey);
       if (!ld) {
@@ -1265,11 +1250,8 @@ async function scrapeCulturaCabanyal(context) {
         });
       }
 
-      // Canonical title
       const cleanTitle = ld?.name || toNaturalCase(rawTitle);
 
-      // Filter out participatory workshops, hobby courses, and multi-session classes (Tallers)
-      // Only include spectator events: Escénicas / Performing Arts & Comedy, Música, and Exposiciones
       const isWorkshop =
         /taller/i.test(discipline) ||
         /taller/i.test(ld?.about || '') ||
@@ -1284,7 +1266,6 @@ async function scrapeCulturaCabanyal(context) {
         continue;
       }
 
-      // Extract image URL (JSON-LD direct full artwork or decoded Next.js photo)
       let imageUrl = '';
       if (ld && Array.isArray(ld.image) && ld.image[0]) {
         imageUrl = ld.image[0];
@@ -1314,10 +1295,8 @@ async function scrapeCulturaCabanyal(context) {
         imageUrl = `https://culturacabanyal.com${imageUrl}`;
       }
 
-      // Category classification
       const category = classifyCabanyal(cleanTitle, discipline, ld?.about || '', ld?.description || '');
 
-      // Start date parsing
       let startDateIso = '';
       if (ld?.startDate) {
         try {
@@ -1367,7 +1346,6 @@ async function scrapeCulturaCabanyal(context) {
       const deepLink = `https://culturacabanyal.com/agenda#event-${eventId}`;
       const deepLinkEs = `https://culturacabanyal.com/agenda/?lang=cas#event-${eventId}`;
 
-      // Venue building address
       const locName = ld?.location?.name || '';
       let address = 'Carrer de la Reina, 219, 46011 València';
       if (/reina\s*121/i.test(locName)) {
@@ -2150,9 +2128,9 @@ async function scrapeValenciaBasket(page) {
   return events;
 }
 
-// 5. Valencia CF
+// 5. Valencia CF (Men's Team - Mestalla)
 async function scrapeValenciaCF(page, context) {
-  console.log('Scraping Valencia CF live ticketing...');
+  console.log('Scraping Valencia CF live ticketing (Mestalla)...');
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
@@ -2256,6 +2234,156 @@ async function scrapeValenciaCF(page, context) {
     }
   }
 
+  return events;
+}
+
+// 5b. Valencia CF Femenino (Official Calendar - Antonio Puchades / Liga F)
+async function scrapeValenciaCFFemenino(page, context) {
+  console.log('Scraping Valencia CF Femenino official calendar...');
+  const events = [];
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+  const startFloor = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const CALENDAR_URL = 'https://www.valenciacf.com/resultados-vcf-femenino?range=next';
+
+  try {
+    await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2500);
+
+    const matches = await page.evaluate(() => {
+      const items = [];
+      const cards = document.querySelectorAll('.card-game');
+
+      cards.forEach((card) => {
+        const leftTeamEl = card.querySelector('.card-game__teams__name--left');
+        const rightTeamEl = card.querySelector('.card-game__teams__name--right');
+        if (!leftTeamEl || !rightTeamEl) return;
+
+        const homeTeam = (leftTeamEl.textContent || '').trim();
+        const awayTeam = (rightTeamEl.textContent || '').trim();
+
+        // Strictly HOME matches for Valencia CF Femenino (Valencia listed on the left)
+        const isHome = /valencia(?:\s*cf)?(?:\s*femenin[oa])?/i.test(homeTeam) && !/valencia/i.test(awayTeam);
+        if (!isHome) return;
+
+        const dateEl = card.querySelector('.card-game__date__date, .card-game__date__nodate, .card-game__date');
+        const locEl = card.querySelector('.card-game__date__location');
+        const compEl = card.querySelector('.card-game__date__competicion__name');
+        const timeEl = card.querySelector('.card-game__teams__time');
+        const ticketBtn = card.querySelector('a.button-s, a[href*="tickets"], a[href*="entradas"], a[href*="onebox"]');
+
+        const logos = Array.from(card.querySelectorAll('.card-game__teams__logo img'));
+        const awayLogo = logos.length > 1 ? (logos[1].getAttribute('src') || logos[1].src) : null;
+
+        items.push({
+          homeTeam,
+          awayTeam,
+          rawDate: dateEl ? (dateEl.textContent || '').trim() : '',
+          rawLoc: locEl ? (locEl.textContent || '').trim() : '',
+          rawComp: compEl ? (compEl.textContent || '').trim() : '',
+          rawTime: timeEl ? (timeEl.textContent || '').trim() : '',
+          ticketLink: ticketBtn ? ticketBtn.href : '',
+          img: awayLogo,
+          cardText: card.innerText || '',
+        });
+      });
+
+      return items;
+    });
+
+    console.log(`VCF Femenino calendar items extracted: ${matches.length}`);
+
+    for (const m of matches) {
+      let iso = null;
+
+      // 1. If ticketing page is available and card has unconfirmed date, inspect ticket page JSON-LD
+      let detailData = null;
+      if (m.ticketLink && !/tmgrupoinmobiliario|partners|webvalenciacf/i.test(m.ticketLink) && context) {
+        try {
+          const res = await context.request.get(m.ticketLink, { timeout: 6000 });
+          if (res.ok()) {
+            const html = await res.text();
+            detailData = parseEventJsonLd(html);
+            if (detailData?.startDate) {
+              iso = detailData.startDate;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Parse date from calendar card (e.g. 'lun. 09 nov. / Jor. 10' or '09 nov' or '15/11/2026')
+      if (!iso) {
+        const match = m.rawDate.match(/(\d{1,2})\s+([a-zçà-ú]{3,10})\.?(?:\s+(\d{4}))?/i);
+        if (match) {
+          const day = match[1];
+          const month = match[2];
+          const year = match[3] || currentYear;
+          iso = parseSpanishDateToIso(day, month, year);
+
+          if (iso && m.rawTime && /^\d{1,2}:\d{2}$/.test(m.rawTime.trim())) {
+            const [hh, mm] = m.rawTime.trim().split(':');
+            const dt = new Date(iso);
+            dt.setUTCHours(Math.max(0, parseInt(hh, 10) - 1), parseInt(mm, 10), 0, 0);
+            iso = dt.toISOString();
+          }
+        }
+      }
+
+      // If kickoff date is not yet confirmed by the league (e.g. 'Por determinar'),
+      // skip until official scheduling is announced within the 4-week calendar window.
+      if (!iso) continue;
+
+      const dt = new Date(iso);
+      if (dt < startFloor || dt > cutoffDate) continue;
+
+      const isMestalla = /mestalla/i.test(m.rawLoc) || /mestalla/i.test(m.cardText);
+      const venueName = isMestalla ? 'Estadio de Mestalla' : 'Estadio Antonio Puchades';
+      const address = isMestalla
+        ? 'Avinguda de Suècia, s/n, 46010 València'
+        : 'Ciutat Esportiva de Paterna, Carrer dels Jocs Taronja, 46988 Paterna, València';
+
+      let competition = 'Liga F';
+      if (/copa/i.test(m.rawComp)) competition = 'Copa de la Reina';
+      else if (/champions|uwcl/i.test(m.rawComp)) competition = "UEFA Women's Champions League";
+
+      const cleanOpponent = toNaturalCase(m.awayTeam.replace(/\s+Femenino\b/i, '').replace(/\s+Fem\b/i, ''));
+      const fullTitle = `Valencia CF Femenino vs ${toNaturalCase(m.awayTeam)}`;
+
+      if (isAwayMatch(fullTitle, venueName)) continue;
+
+      const validTicketUrl =
+        m.ticketLink && !/tmgrupoinmobiliario|partners|webvalenciacf/i.test(m.ticketLink)
+          ? m.ticketLink
+          : CALENDAR_URL;
+
+      let fullImg = null;
+      if (m.img) {
+        if (m.img.startsWith('http')) fullImg = m.img;
+        else if (m.img.startsWith('/')) fullImg = `https://www.valenciacf.com${m.img}`;
+      }
+
+      events.push({
+        id: `vcf-fem-${events.length + 1}-${Date.now()}`,
+        title: fullTitle,
+        description: `Partido oficial de ${competition} en el ${venueName} frente al ${cleanOpponent}`,
+        category: 'esports',
+        startDate: iso,
+        venueName: venueName,
+        address: address,
+        imageUrl: fullImg || detailData?.imageUrl || SPORTS_FALLBACKS.football,
+        isFree: false,
+        ticketUrl: validTicketUrl,
+        url: validTicketUrl,
+        source: 'vcf-femenino',
+        authority: 1,
+      });
+    }
+  } catch (err) {
+    console.warn(`Valencia CF Femenino scrape notice: ${err.message}`);
+  }
+
+  console.log(`Ingested ${events.length} official Valencia CF Femenino events.`);
   return events;
 }
 
@@ -2475,6 +2603,15 @@ async function main() {
     console.error('Valencia CF error:', e.message);
   }
 
+  let vcfFemEvents = [];
+  try {
+    const page = await context.newPage();
+    vcfFemEvents = await scrapeValenciaCFFemenino(page, context);
+    await page.close();
+  } catch (e) {
+    console.error('Valencia CF Femenino error:', e.message);
+  }
+
   let ivcEvents = [];
   try {
     ivcEvents = await scrapeIvcOpenData(context);
@@ -2527,6 +2664,7 @@ async function main() {
     ...fdmEvents,
     ...vbcEvents,
     ...vcfEvents,
+    ...vcfFemEvents,
     ...ludEvents,
     ...musicEvents,
     ...ivcEvents,
@@ -2758,7 +2896,6 @@ async function main() {
       base.endDate = maxEnd;
     }
 
-    // Prefer specific deep link over generic root agenda URLs
     const isGenericAgendaUrl = (u) =>
       !u ||
       u === '#' ||
@@ -2766,7 +2903,6 @@ async function main() {
       u.endsWith('/agenda/') ||
       /culturacabanyal\.com\/agenda\/?$/i.test(u);
 
-    // Prefer culturacabanyal deep link (#event-XXXX) over any generic agenda or aggregator link
     if (other.url && other.url.includes('culturacabanyal.com/agenda#event-')) {
       base.url = other.url;
       base.ticketUrl = other.ticketUrl || other.url;
@@ -2791,14 +2927,12 @@ async function main() {
       }
     }
 
-    // If other is official culturacabanyal primary source, preserve its source, id, and category
     if (other.source === 'culturacabanyal' && base.source !== 'culturacabanyal') {
       base.source = other.source;
       base.id = other.id;
       base.category = other.category;
     }
 
-    // Treat venue logo placeholders and default banners as generic so real photos always override them
     const isGenericImg = (img) =>
       !img ||
       Object.values(CULTURAL_FALLBACKS).includes(img) ||
