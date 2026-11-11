@@ -557,10 +557,87 @@ function extractSpecificSlug(url) {
   }
 }
 
+/**
+ * Normalizes event URLs to force canonical Spanish versions across all event sources.
+ * Specifically converts Valencia CF VIP URLs to standard ticketing blockmap view,
+ * forces HTTPS and Spanish locale for Songkick, removes Catalan locale from Valencia Basket,
+ * rewrites IVC Open Data URLs to Spanish, and sets HUB Cultural Cabanyal to Spanish (?lang=cas).
+ */
+export function normalizeSpanishEventUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+  let url = rawUrl.trim();
+
+  // 1. Upgrade insecure http to https for known domains
+  if (url.startsWith('http://www.songkick.com') || url.startsWith('http://songkick.com')) {
+    url = url.replace(/^http:\/\//i, 'https://');
+  }
+
+  // 2. Songkick Spanish locale enforcement
+  if (/songkick\.com\/(?:concerts|artists|venues)/i.test(url) && !url.includes('/es/')) {
+    url = url.replace(/songkick\.com\//i, 'songkick.com/es/');
+  }
+
+  // 3. Valencia CF: Rewrite VIP ticketing to regular webservices seat selection in Spanish
+  // e.g. https://entradas.valenciacf.com/valenciacf_vip/select/2964328?hl=en-US -> https://entradas.valenciacf.com/valenciacf_webservices/select/2964328?viewCode=V_blockmap_view
+  const vcfVipMatch = url.match(/entradas\.valenciacf\.com\/valenciacf_vip\/select\/(\d+)/i);
+  if (vcfVipMatch) {
+    const matchId = vcfVipMatch[1];
+    return `https://entradas.valenciacf.com/valenciacf_webservices/select/${matchId}?viewCode=V_blockmap_view`;
+  }
+
+  // If already webservices, ensure viewCode and remove any hl=en
+  const vcfWsMatch = url.match(/entradas\.valenciacf\.com\/valenciacf_webservices\/select\/(\d+)/i);
+  if (vcfWsMatch) {
+    const matchId = vcfWsMatch[1];
+    return `https://entradas.valenciacf.com/valenciacf_webservices/select/${matchId}?viewCode=V_blockmap_view`;
+  }
+
+  // Valencia CF root tickets / calendar landing pages
+  if (/valenciacf\.com\/tickets(?:\/|$|\?)/i.test(url)) {
+    url = url.replace(/\/tickets/i, '/es/entradas');
+  }
+  if (/valenciacf\.com\/entradas(?:\/|$|\?)/i.test(url) && !url.includes('/es/entradas')) {
+    url = url.replace(/\/entradas/i, '/es/entradas');
+  }
+  if (/valenciacf\.com\/resultados-vcf-femenino/i.test(url) && !url.includes('/es/resultados-vcf-femenino')) {
+    url = url.replace(/valenciacf\.com\/resultados-vcf-femenino/i, 'valenciacf.com/es/resultados-vcf-femenino');
+  }
+
+  // 4. Valencia Basket: Remove /ca/ Catalan prefix to default to Spanish
+  if (url.includes('valenciabasket.com/ca/')) {
+    url = url.replace('valenciabasket.com/ca/', 'valenciabasket.com/');
+  }
+
+  // 5. IVC Open Data: Replace /val/ with Spanish /es/
+  if (url.includes('ivc.gva.es/val/escena-val/')) {
+    url = url.replace('ivc.gva.es/val/escena-val/', 'ivc.gva.es/es/escena-es/');
+  } else if (url.includes('ivc.gva.es/val/')) {
+    url = url.replace('ivc.gva.es/val/', 'ivc.gva.es/es/');
+  }
+
+  // 6. HUB Cultural Cabanyal: Force Spanish language (?lang=cas)
+  if (url.includes('culturacabanyal.com/agenda') && !url.includes('lang=cas') && !url.includes('lang=es')) {
+    const hashIdx = url.indexOf('#');
+    if (hashIdx !== -1) {
+      const base = url.slice(0, hashIdx).replace(/\/+$/, '');
+      const hash = url.slice(hashIdx);
+      url = `${base}/?lang=cas${hash}`;
+    } else {
+      url = url.replace(/\/+$/, '') + '/?lang=cas';
+    }
+  }
+
+  // 7. General cleanup of ?hl=en-US or &hl=en-US across any links
+  url = url.replace(/[?&]hl=en(?:-[A-Z]+)?/gi, '');
+  url = url.replace(/\?&/, '?').replace(/[?&]$/, '');
+
+  return url;
+}
+
 function isDirectTicketingUrl(url) {
   if (!url || url === '#') return false;
   return (
-    /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com|oneboxtds\.com/i.test(url) &&
+    /entradas|taquilla|servientradas|ticketmaster|wegow|notikumi|larambleta\.com|teatroenvalencia\.com|ivc\.gva\.es|ivam\.es|valenciabasket\.com|valenciacf|entradas\.valenciacf|oneboxtds\.com/i.test(url) &&
     !/au-agenda\.com\/evento/i.test(url)
   );
 }
@@ -682,6 +759,9 @@ async function scrapeSongkick(page, context) {
             if (eventDateObj.getTime() > maxDateOnPage) maxDateOnPage = eventDateObj.getTime();
             if (eventDateObj < startFloor || eventDateObj > cutoffDate) continue;
 
+            const spanishUrl = normalizeSpanishEventUrl(item.url || 'https://www.songkick.com/es');
+            const spanishTicketUrl = normalizeSpanishEventUrl(offer?.url || item.url || 'https://www.songkick.com/es');
+
             events.push({
               id: `sk-${events.length + 1}-${Date.now()}`,
               title: item.name || 'Concierto en Valencia',
@@ -694,8 +774,8 @@ async function scrapeSongkick(page, context) {
               imageUrl: validImg,
               isFree: offer?.price === 0 || offer?.price === '0',
               ticketPrice: price,
-              ticketUrl: offer?.url || item.url,
-              url: item.url || 'https://www.songkick.com/es',
+              ticketUrl: spanishTicketUrl,
+              url: spanishUrl,
             });
           }
         }
@@ -1017,25 +1097,26 @@ async function scrapeIvcOpenData(context) {
       const isFree = /gratu|libre|lliure/i.test(price) || price === '0' || price === '0 €';
       const cleanTitle = toNaturalCase(rawTitle);
 
-      events.push({
-        id: `ivc-${category}-${normalizeKey(cleanTitle).slice(0, 30)}-${sIso}`,
-        title: cleanTitle,
-        description: `Programación oficial del Institut Valencià de Cultura (IVC) en ${venueName}. ${type}`,
-        category,
-        startDate: `${sIso}T19:00:00.000Z`,
-        endDate: eIso && eIso !== sIso ? `${eIso}T21:00:00.000Z` : undefined,
-        venueName,
-        address: address || `${venueName}, València`,
-        imageUrl:
-          getVenuePlaceholderUrl(venueName, cleanTitle, category) ||
-          (category === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions),
-        isFree,
-        ticketPrice: price && !isFree ? price : undefined,
-        ticketUrl: link || 'https://ivc.gva.es',
-        url: link || 'https://ivc.gva.es',
-        source: 'ivc',
-        authority: 1,
-      });
+        const spanishIvcUrl = normalizeSpanishEventUrl(link || 'https://ivc.gva.es/es/');
+        events.push({
+          id: `ivc-${category}-${normalizeKey(cleanTitle).slice(0, 30)}-${sIso}`,
+          title: cleanTitle,
+          description: `Programación oficial del Institut Valencià de Cultura (IVC) en ${venueName}. ${type}`,
+          category,
+          startDate: `${sIso}T19:00:00.000Z`,
+          endDate: eIso && eIso !== sIso ? `${eIso}T21:00:00.000Z` : undefined,
+          venueName,
+          address: address || `${venueName}, València`,
+          imageUrl:
+            getVenuePlaceholderUrl(venueName, cleanTitle, category) ||
+            (category === 'teatre' ? CULTURAL_FALLBACKS.teatre : CULTURAL_FALLBACKS.exposicions),
+          isFree,
+          ticketPrice: price && !isFree ? price : undefined,
+          ticketUrl: spanishIvcUrl,
+          url: spanishIvcUrl,
+          source: 'ivc',
+          authority: 1,
+        });
     }
 
     // Live Webpage Photo Enrichment for IVC shows (Teatre Principal & Rialto)
@@ -1374,9 +1455,8 @@ async function scrapeCulturaCabanyal(context) {
         address,
         imageUrl,
         isFree,
-        ticketPrice,
-        ticketUrl: deepLink,
-        url: deepLink,
+        ticketUrl: deepLinkEs,
+        url: deepLinkEs,
         urlEs: deepLinkEs,
         urlVa: deepLink,
         ticketUrlEs: deepLinkEs,
@@ -2021,7 +2101,7 @@ async function scrapeValenciaBasket(page) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
-  const CALENDAR_URL = 'https://www.valenciabasket.com/ca/calendario?teamId=&competitionId=&place=home';
+  const CALENDAR_URL = 'https://www.valenciabasket.com/calendario?teamId=&competitionId=&place=home';
 
   try {
     await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -2117,8 +2197,8 @@ async function scrapeValenciaBasket(page) {
         address: address,
         imageUrl: SPORTS_FALLBACKS.basket,
         isFree: false,
-        ticketUrl: CALENDAR_URL,
-        url: CALENDAR_URL,
+        ticketUrl: normalizeSpanishEventUrl(CALENDAR_URL),
+        url: normalizeSpanishEventUrl(CALENDAR_URL),
       });
     }
   } catch (err) {
@@ -2134,7 +2214,7 @@ async function scrapeValenciaCF(page, context) {
   const events = [];
   const now = new Date();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
-  const URLS = ['https://www.valenciacf.com/tickets', 'https://www.valenciacf.com/entradas'];
+  const URLS = ['https://www.valenciacf.com/es/entradas', 'https://www.valenciacf.com/entradas'];
 
   for (const url of URLS) {
     try {
@@ -2151,11 +2231,13 @@ async function scrapeValenciaCF(page, context) {
             /Valencia/i.test(text) &&
             (/Mestalla|Puchades|Paterna|Femenin|Liga\s*F/i.test(text) || /entradas|ticket|comprar/i.test(text))
           ) {
-            const btn = b.querySelector('a[href*="ticket"], a[href*="entradas"], a');
+            const allLinks = Array.from(b.querySelectorAll('a[href*="webservices"], a[href*="entradas"], a[href*="ticket"], a'));
+            // Prioritize regular tickets over VIP packages
+            const regularBtn = allLinks.find((a) => !/vip/i.test(a.href) && !/vip/i.test(a.innerText || '')) || allLinks[0];
             const imgEl = b.querySelector('img');
             items.push({
               rawText: text,
-              link: btn ? btn.href : 'https://www.valenciacf.com/tickets',
+              link: regularBtn ? regularBtn.href : 'https://www.valenciacf.com/es/entradas',
               img: imgEl ? imgEl.src || imgEl.getAttribute('data-src') : null,
             });
           }
@@ -2165,6 +2247,8 @@ async function scrapeValenciaCF(page, context) {
 
       for (const m of matches) {
         let detailData = null;
+        const normalizedMatchLink = normalizeSpanishEventUrl(m.link);
+
         if (m.link && context) {
           try {
             const res = await context.request.get(m.link, { timeout: 6000 });
@@ -2225,8 +2309,8 @@ async function scrapeValenciaCF(page, context) {
           address: address,
           imageUrl: m.img || detailData?.imageUrl || SPORTS_FALLBACKS.football,
           isFree: false,
-          ticketUrl: m.link,
-          url: m.link,
+          ticketUrl: normalizedMatchLink,
+          url: normalizedMatchLink,
         });
       }
     } catch (err) {
@@ -2245,7 +2329,7 @@ async function scrapeValenciaCFFemenino(page, context) {
   const currentYear = now.getFullYear();
   const cutoffDate = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
   const startFloor = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const CALENDAR_URL = 'https://www.valenciacf.com/resultados-vcf-femenino?range=next';
+  const CALENDAR_URL = 'https://www.valenciacf.com/es/resultados-vcf-femenino?range=next';
 
   try {
     await page.goto(CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -2352,10 +2436,11 @@ async function scrapeValenciaCFFemenino(page, context) {
 
       if (isAwayMatch(fullTitle, venueName)) continue;
 
-      const validTicketUrl =
+      const validTicketUrl = normalizeSpanishEventUrl(
         m.ticketLink && !/tmgrupoinmobiliario|partners|webvalenciacf/i.test(m.ticketLink)
           ? m.ticketLink
-          : CALENDAR_URL;
+          : CALENDAR_URL
+      );
 
       let fullImg = null;
       if (m.img) {
@@ -2703,6 +2788,10 @@ async function main() {
       venueName,
       address,
       description,
+      ticketUrl: normalizeSpanishEventUrl(ev.ticketUrl),
+      url: normalizeSpanishEventUrl(ev.url),
+      ticketUrlEs: ev.ticketUrlEs ? normalizeSpanishEventUrl(ev.ticketUrlEs) : undefined,
+      urlEs: ev.urlEs ? normalizeSpanishEventUrl(ev.urlEs) : undefined,
     };
   }).filter((ev) => {
     // Drop away matches (skip for FDM since it's 100% municipal local events)
@@ -2903,7 +2992,7 @@ async function main() {
       u.endsWith('/agenda/') ||
       /culturacabanyal\.com\/agenda\/?$/i.test(u);
 
-    if (other.url && other.url.includes('culturacabanyal.com/agenda#event-')) {
+    if (other.url && /culturacabanyal\.com\/agenda(?:\/\?lang=cas)?#event-/i.test(other.url)) {
       base.url = other.url;
       base.ticketUrl = other.ticketUrl || other.url;
       if (other.urlEs) base.urlEs = other.urlEs;
@@ -2914,7 +3003,7 @@ async function main() {
       base.url = other.url;
     }
 
-    if (other.ticketUrl && other.ticketUrl.includes('culturacabanyal.com/agenda#event-')) {
+    if (other.ticketUrl && /culturacabanyal\.com\/agenda(?:\/\?lang=cas)?#event-/i.test(other.ticketUrl)) {
       base.ticketUrl = other.ticketUrl;
     } else if (isGenericAgendaUrl(base.ticketUrl) && other.ticketUrl && !isGenericAgendaUrl(other.ticketUrl)) {
       base.ticketUrl = other.ticketUrl || other.url;
