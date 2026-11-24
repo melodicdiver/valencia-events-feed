@@ -3127,15 +3127,57 @@ function normalizeCinemaSlug(text) {
     .slice(0, 56);
 }
 
+const CINEMA_NAMED_HTML_ENTITIES = {
+  nbsp: ' ',
+  amp: '&',
+  quot: '"',
+  apos: "'",
+  lt: '<',
+  gt: '>',
+  aacute: 'á', Aacute: 'Á',
+  eacute: 'é', Eacute: 'É',
+  iacute: 'í', Iacute: 'Í',
+  oacute: 'ó', Oacute: 'Ó',
+  uacute: 'ú', Uacute: 'Ú',
+  agrave: 'à', Agrave: 'À',
+  egrave: 'è', Egrave: 'È',
+  igrave: 'ì', Igrave: 'Ì',
+  ograve: 'ò', Ograve: 'Ò',
+  ugrave: 'ù', Ugrave: 'Ù',
+  uuml: 'ü', Uuml: 'Ü',
+  iuml: 'ï', Iuml: 'Ï',
+  ntilde: 'ñ', Ntilde: 'Ñ',
+  ccedil: 'ç', Ccedil: 'Ç',
+  iquest: '¿',
+  iexcl: '¡',
+  ordm: 'º',
+  ordf: 'ª',
+  laquo: '«',
+  raquo: '»',
+  ldquo: '“',
+  rdquo: '”',
+  lsquo: '‘',
+  rsquo: '’',
+  hellip: '…',
+  mdash: '—',
+  ndash: '–',
+  middot: '·',
+  euro: '€',
+};
+
 function decodeHtmlEntitiesCinema(str) {
   if (!str) return '';
   return String(str)
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
+    .replace(/&([a-zA-Z]+);/g, (full, name) => {
+      if (Object.prototype.hasOwnProperty.call(CINEMA_NAMED_HTML_ENTITIES, name)) {
+        return CINEMA_NAMED_HTML_ENTITIES[name];
+      }
+      const lower = name.toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(CINEMA_NAMED_HTML_ENTITIES, lower)) {
+        return CINEMA_NAMED_HTML_ENTITIES[lower];
+      }
+      return full;
+    })
     .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     .replace(/\s+/g, ' ')
@@ -3148,6 +3190,8 @@ function stripHtmlTagsCinema(html) {
     String(html)
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/<\/(?:p|div|li|h[1-6]|blockquote)>/gi, ' ')
       .replace(/<[^>]+>/g, ' ')
   );
 }
@@ -3471,7 +3515,8 @@ function buildCinemaEventRecord(cinema, raw, todayISO, updatedAtISO) {
   const posterUrl = raw.posterUrl ? resolveAbsoluteCinemaUrl(raw.posterUrl, cinema.url) : null;
   const sourceUrl = resolveAbsoluteCinemaUrl(raw.sourceUrl || raw.ticketUrl, cinema.url) || cinema.url;
   const hasVOSE = Boolean(raw.hasVOSE || sessions.some((s) => s.isVOSE));
-  const synopsis = raw.synopsis ? decodeHtmlEntitiesCinema(raw.synopsis).slice(0, 600) : null;
+  const cleanedSynopsis = raw.synopsis ? stripHtmlTagsCinema(raw.synopsis).slice(0, 700).trim() : '';
+  const synopsis = cleanedSynopsis.length >= 15 ? cleanedSynopsis : null;
 
   return {
     id: `cine-${cinema.id}-${slug}-${date}`,
@@ -3551,31 +3596,77 @@ function groupAndDeduplicateCinemaEvents(events) {
  * Propagates clean posterUrl, director, durationMinutes, ageRating, and synopsis
  * from richer venue payloads to venues screening the same film with missing metadata.
  */
+function extractCinemaLookupSlugs(rawTitle) {
+  const keys = [];
+  const pushKey = (t) => {
+    const slug = normalizeCinemaSlug(t);
+    if (slug && slug.length >= 3 && !keys.includes(slug)) {
+      keys.push(slug);
+    }
+  };
+  const base = String(rawTitle || '').trim();
+  if (!base) return keys;
+  pushKey(base);
+
+  const strippedPrefix = base
+    .replace(
+      /^(?:sesi[oó]n\s+doble|doble\s+sesi[oó]n|preestreno|reestreno|preventa|evento\s+especial|proyecto\s+viridiana|cine\s*club\s*lys|anime\s*saikuru)\s*[:\-–—]\s*/i,
+      ''
+    )
+    .trim();
+  if (strippedPrefix && strippedPrefix !== base) {
+    pushKey(strippedPrefix);
+  }
+
+  // Handle Autocine double-feature titles like "Película A + Película B"
+  if (/\s*\+\s*/.test(strippedPrefix)) {
+    const parts = strippedPrefix.split(/\s*\+\s*/).map((p) => p.trim()).filter(Boolean);
+    for (const part of parts) {
+      pushKey(part);
+    }
+  }
+  return keys;
+}
+
 function propagateCrossVenueCinemaMetadata(events) {
   const metaByFilm = new Map();
   for (const ev of events) {
-    const filmKey = normalizeCinemaSlug(ev.title);
-    if (!filmKey) continue;
-    const prev = metaByFilm.get(filmKey) || {};
-    metaByFilm.set(filmKey, {
-      posterUrl: pickPreferredCinemaPoster(prev.posterUrl, ev.posterUrl),
-      director: prev.director || ev.director || null,
-      durationMinutes: prev.durationMinutes || ev.durationMinutes || null,
-      ageRating: prev.ageRating || ev.ageRating || null,
-      originalTitle: prev.originalTitle || ev.originalTitle || null,
-      synopsis:
-        prev.synopsis && prev.synopsis.length >= (ev.synopsis?.length || 0)
-          ? prev.synopsis
-          : ev.synopsis || prev.synopsis || null,
-    });
+    const filmKeys = extractCinemaLookupSlugs(ev.title);
+    if (filmKeys.length === 0) continue;
+    // Index under exact and prefix-stripped keys (first 2 keys, avoid polluting shared index with split fragments)
+    const indexKeys = filmKeys.slice(0, /\s*\+\s*/.test(ev.title || '') ? 1 : 2);
+    for (const filmKey of indexKeys) {
+      const prev = metaByFilm.get(filmKey) || {};
+      metaByFilm.set(filmKey, {
+        posterUrl: pickPreferredCinemaPoster(prev.posterUrl, ev.posterUrl),
+        director: prev.director || ev.director || null,
+        durationMinutes: prev.durationMinutes || ev.durationMinutes || null,
+        ageRating: prev.ageRating || ev.ageRating || null,
+        originalTitle: prev.originalTitle || ev.originalTitle || null,
+        synopsis:
+          prev.synopsis && prev.synopsis.length >= (ev.synopsis?.length || 0)
+            ? prev.synopsis
+            : ev.synopsis || prev.synopsis || null,
+      });
+    }
   }
 
   return events.map((ev) => {
-    const filmKey = normalizeCinemaSlug(ev.title);
-    const shared = metaByFilm.get(filmKey);
+    const filmKeys = extractCinemaLookupSlugs(ev.title);
+    let shared = null;
+    for (const key of filmKeys) {
+      const candidate = metaByFilm.get(key);
+      if (candidate && (candidate.synopsis || candidate.posterUrl || candidate.director)) {
+        shared = candidate;
+        if (candidate.synopsis) break;
+      }
+    }
     if (!shared) return ev;
     const posterUrl = pickPreferredCinemaPoster(ev.posterUrl, shared.posterUrl);
-    const synopsis = ev.synopsis || shared.synopsis || null;
+    const synopsis =
+      ev.synopsis && ev.synopsis.length >= 25
+        ? ev.synopsis
+        : shared.synopsis || ev.synopsis || null;
     return {
       ...ev,
       posterUrl,
@@ -3944,8 +4035,22 @@ async function scrapeReservaEntradasCinemaVenue(cinema, todayISO, updatedAtISO) 
           sessionsByDate.get(dateStr).push(sessObj);
         };
 
+        let resolvedSynopsis = movie.synopsis;
         try {
           const { html: detailHtml } = await fetchCinemaPage(movie.sesionesUrl, 10000);
+          if (!resolvedSynopsis || resolvedSynopsis.length < 25) {
+            const detailSynM =
+              /<div[^>]*id=["']sinopsis_info["'][^>]*>([\s\S]*?)<\/div>/i.exec(detailHtml) ||
+              /<div[^>]*id=["']sinopsis-box-2["'][^>]*>([\s\S]*?)<\/div>/i.exec(detailHtml);
+            const detailSyn = detailSynM
+              ? stripHtmlTagsCinema(detailSynM[1])
+                  .replace(/^sinopsis\s*[:\-–—]?\s*/i, '')
+                  .trim()
+              : '';
+            if (detailSyn.length >= 25) {
+              resolvedSynopsis = detailSyn;
+            }
+          }
           const analyticsMap = parseReservaEntradasAnalyticsJson(detailHtml);
           if (analyticsMap && typeof analyticsMap === 'object') {
             for (const [sessionId, info] of Object.entries(analyticsMap)) {
@@ -3996,7 +4101,7 @@ async function scrapeReservaEntradasCinemaVenue(cinema, todayISO, updatedAtISO) 
             sessions: sessList,
             durationMinutes: movie.durationMinutes,
             ageRating: movie.ageRating,
-            synopsis: movie.synopsis,
+            synopsis: resolvedSynopsis,
             posterUrl: movie.posterUrl,
             sourceUrl: movie.movieTicketPageUrl,
             ticketUrl: movie.movieTicketPageUrl,
@@ -4214,12 +4319,9 @@ function parseLaFilmotecaHtml(html, finalUrl, cinema, todayISO) {
     else if (/\b70\s*mm\b/i.test(metaText)) format = '70mm';
     else if (/\bDCP\b/i.test(metaText)) format = 'DCP';
 
-    // 6. Optional presentation note (<p class="azul">)
+    // 6. Optional presentation note (<p class="azul">); real plot synopsis is fetched from each film's detailUrl
     const noteM = /<p[^>]*class=["'][^"']*azul[^"']*["'][^>]*>([\s\S]*?)<\/p>/i.exec(block);
     const noteText = noteM ? stripHtmlTagsCinema(noteM[1]) : '';
-    const synopsisParts = [];
-    if (noteText) synopsisParts.push(noteText);
-    if (metaText) synopsisParts.push(metaText);
 
     entries.push({
       title,
@@ -4228,7 +4330,8 @@ function parseLaFilmotecaHtml(html, finalUrl, cinema, todayISO) {
       cycleName: cycleName || 'La Filmoteca',
       director,
       durationMinutes,
-      synopsis: synopsisParts.join(' · ') || undefined,
+      synopsis: noteText || undefined,
+      extraText: metaText || undefined,
       posterUrl,
       sourceUrl: detailUrl || cinema.url,
       ticketUrl,
@@ -4245,6 +4348,89 @@ function parseLaFilmotecaHtml(html, finalUrl, cinema, todayISO) {
   }
 
   return entries;
+}
+
+/**
+ * Extracts real plot synopsis and optional original title from a La Filmoteca (IVC) film detail page
+ * e.g. https://ivc.gva.es/es/audiovisuales/pelicula-2280/primera-plana
+ */
+function parseLaFilmotecaDetailHtml(html) {
+  const src = String(html || '');
+  let synopsis = null;
+  let originalTitle = null;
+
+  const h1M = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(src);
+  if (h1M) {
+    const origM = /<br\s*\/?>\s*\(([^)]+)\)/i.exec(h1M[1]);
+    if (origM) {
+      const cleanedOrig = normalizeAllCapsCinemaLabel(stripHtmlTagsCinema(origM[1]));
+      if (cleanedOrig && cleanedOrig.length >= 2) {
+        originalTitle = cleanedOrig;
+      }
+    }
+  }
+
+  const synM =
+    /<h2[^>]*class=["'][^"']*enficha[^"']*["'][^>]*>\s*Sinops(?:is|i)\s*<\/h2>\s*<div[^>]*class=["'][^"']*contenido[^"']*["'][^>]*>([\s\S]*?)<\/div>/i.exec(
+      src
+    );
+  if (synM) {
+    const cleaned = stripHtmlTagsCinema(
+      synM[1]
+        .replace(/(?:<br\s*\/?>\s*){2,}/gi, ' ')
+        .replace(/^\s*(?:&gt;|>)\s*/gm, '')
+    )
+      .replace(/\s+>\s+/g, ' ')
+      .trim();
+    if (cleaned.length >= 20) {
+      synopsis = cleaned;
+    }
+  }
+
+  return { synopsis, originalTitle };
+}
+
+/**
+ * Enriches parsed La Filmoteca entries with real plot synopses & original titles
+ * by fetching each unique film detail page in small parallel batches.
+ */
+async function enrichLaFilmotecaEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return entries;
+  const uniqueUrls = Array.from(
+    new Set(
+      entries
+        .map((e) => e.sourceUrl)
+        .filter((u) => typeof u === 'string' && /\/pelicula-\d+\//i.test(u))
+    )
+  );
+  if (uniqueUrls.length === 0) return entries;
+
+  const detailMap = new Map();
+  const batchSize = 6;
+  for (let i = 0; i < uniqueUrls.length; i += batchSize) {
+    const batch = uniqueUrls.slice(i, i + batchSize);
+    const settled = await Promise.allSettled(
+      batch.map(async (url) => {
+        const { html } = await fetchCinemaPage(url, 10000);
+        return { url, parsed: parseLaFilmotecaDetailHtml(html) };
+      })
+    );
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value?.parsed) {
+        detailMap.set(r.value.url, r.value.parsed);
+      }
+    }
+  }
+
+  return entries.map((entry) => {
+    const detail = detailMap.get(entry.sourceUrl);
+    if (!detail) return entry;
+    return {
+      ...entry,
+      originalTitle: entry.originalTitle || detail.originalTitle || undefined,
+      synopsis: detail.synopsis || entry.synopsis || undefined,
+    };
+  });
 }
 
 /**
@@ -4692,7 +4878,8 @@ async function scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO) {
       try {
         const { html, finalUrl } = await fetchCinemaPage(targetUrl, 15000);
         const parsed = parseLaFilmotecaHtml(html, finalUrl, cinema, todayISO);
-        const built = parsed
+        const enriched = await enrichLaFilmotecaEntries(parsed);
+        const built = enriched
           .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
           .filter(Boolean);
         if (built.length > 0) {
