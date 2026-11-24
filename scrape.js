@@ -2923,6 +2923,1284 @@ async function scrapeLevanteUD(page, context) {
   return events;
 }
 
+// ============================================================================
+// VALENCIA CINEMAS (MOVIES) 3-TIER SCRAPER PIPELINE (13 OFFICIAL VENUES)
+// Follows Micalet — Movies Feature Design Document & Schedule Directory
+// ============================================================================
+
+const VALENCIA_CINEMAS = [
+  // Valencia Ciudad (9)
+  {
+    id: 'cines-lys',
+    name: 'Cines Lys',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Ciutat Vella',
+    address: 'Passeig de Russafa, 3, 46002 València',
+    tier: 1,
+    url: 'https://cineslys.com/calendario/mes/',
+    secondaryUrls: ['https://cineslys.com/cartelera/'],
+  },
+  {
+    id: 'cines-babel',
+    name: 'Cines Babel',
+    zone: 'valencia-ciudad',
+    neighborhood: 'El Pla del Real',
+    address: 'C/ Vicent Sancho Tello, 10, 46021 València',
+    tier: 1,
+    url: 'https://cinesbabel.com/cartelera/',
+    defaultVOSE: true,
+  },
+  {
+    id: 'yelmo-campanar',
+    name: 'Yelmo Cines Mercado de Campanar',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Campanar',
+    address: 'Av. Tirso de Molina, 16, 46015 València',
+    tier: 2,
+    url: 'https://yelmocines.es/cartelera/valencia',
+    voseUrl: 'https://yelmocines.es/cartelera-vo/valencia',
+  },
+  {
+    id: 'ocine-aqua',
+    name: 'Ocine Premium Aqua',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Camins al Grau',
+    address: 'CC Aqua, C/ Menorca, 19, 46023 València',
+    tier: 2,
+    url: 'https://ocinepremiumaqua.es/',
+  },
+  {
+    id: 'la-filmoteca',
+    name: 'La Filmoteca (IVC)',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Ciutat Vella',
+    address: 'Edifici Rialto, Pl. Ajuntament, 17, 46002 València',
+    tier: 1,
+    url: 'https://ivc.gva.es/val/audiovisual/programacio/valencia-la-filmoteca',
+    secondaryUrls: ['https://ivc.gva.es/es/audiovisual/programacio/valencia-la-filmoteca'],
+    defaultEventType: 'especial',
+  },
+  {
+    id: 'cinestudio-dor',
+    name: "Cinestudio d'Or",
+    zone: 'valencia-ciudad',
+    neighborhood: "L'Eixample",
+    address: 'C/ Almirall Cadarso, 31, 46005 València',
+    tier: 1,
+    url: 'https://www.cinestudiodor.es/',
+  },
+  {
+    id: 'autocine-star',
+    name: 'Autocine STAR',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Pinedo',
+    address: 'Carrera del Riu, 407, 46012 València',
+    tier: 1,
+    url: 'https://www.autocinestar.com/',
+    defaultEventType: 'especial',
+  },
+  {
+    id: 'cines-abc-park',
+    name: 'Cines ABC Park',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Ciutat Vella',
+    address: 'C/ Roger de Llúria, 21, 46002 València',
+    tier: 3,
+    url: 'https://park.cinesabc.com/',
+  },
+  {
+    id: 'cines-abc-el-saler',
+    name: 'Cines ABC El Saler',
+    zone: 'valencia-ciudad',
+    neighborhood: 'Quatre Carreres',
+    address: 'CC El Saler, Av. del Professor López Piñero, 16, 46013 València',
+    tier: 3,
+    url: 'https://elsaler.cinesabc.com/',
+  },
+
+  // Área Metropolitana (4)
+  {
+    id: 'kinepolis-valencia',
+    name: 'Kinépolis València',
+    zone: 'area-metropolitana',
+    neighborhood: 'Paterna',
+    address: 'Heron City, Av. de Francisco Tomás y Valiente, s/n, 46980 Paterna',
+    tier: 2,
+    url: 'https://kinepolis.es/cines/kinepolis-valencia/informacion/',
+  },
+  {
+    id: 'cinesa-bonaire',
+    name: 'Cinesa LUXE Bonaire',
+    zone: 'area-metropolitana',
+    neighborhood: 'Aldaia',
+    address: 'CC Bonaire, A-3 Km 345, 46960 Aldaia',
+    tier: 2,
+    url: 'https://www.cinesa.es/cines/bonaire/',
+  },
+  {
+    id: 'cines-mn4',
+    name: 'Cines MN4',
+    zone: 'area-metropolitana',
+    neighborhood: 'Alfafar',
+    address: 'CC MN4, C/ Alcalde José Puertes, 46910 Alfafar',
+    tier: 1,
+    url: 'https://cinesmn4.com/peliculas-en-cartelera',
+    secondaryUrls: ['https://cinesmn4.com/peliculas-proximamente'],
+  },
+  {
+    id: 'cines-abc-gran-turia',
+    name: 'Cines ABC Gran Turia',
+    zone: 'area-metropolitana',
+    neighborhood: 'Xirivella',
+    address: 'CC Gran Turia, Pl. d’Europa, s/n, 46950 Xirivella',
+    tier: 3,
+    url: 'https://granturia.cinesabc.com/',
+  },
+];
+
+const CINEMA_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+let _cheerioPromise = null;
+async function getOptionalCheerio() {
+  if (!_cheerioPromise) {
+    _cheerioPromise = import('cheerio')
+      .then((m) => m.default || m)
+      .catch(() => null);
+  }
+  return _cheerioPromise;
+}
+
+function getValenciaTodayISO(nowDate = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(nowDate);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const m = parts.find((p) => p.type === 'month')?.value;
+    const d = parts.find((p) => p.type === 'day')?.value;
+    if (y && m && d) return `${y}-${m}-${d}`;
+  } catch {}
+  return nowDate.toISOString().slice(0, 10);
+}
+
+function addDaysToISO(isoDate, deltaDays) {
+  const [y, m, d] = isoDate.split('-').map((n) => parseInt(n, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
+}
+
+function diffDaysISO(dateA, dateB) {
+  const [yA, mA, dA] = dateA.split('-').map((n) => parseInt(n, 10));
+  const [yB, mB, dB] = dateB.split('-').map((n) => parseInt(n, 10));
+  const msA = Date.UTC(yA, mA - 1, dA);
+  const msB = Date.UTC(yB, mB - 1, dB);
+  return Math.round((msA - msB) / (24 * 60 * 60 * 1000));
+}
+
+function normalizeCinemaSlug(text) {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 56);
+}
+
+function decodeHtmlEntitiesCinema(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stripHtmlTagsCinema(html) {
+  if (!html) return '';
+  return decodeHtmlEntitiesCinema(
+    String(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+  );
+}
+
+function resolveAbsoluteCinemaUrl(rawUrl, baseUrl) {
+  if (!rawUrl) return null;
+  const trimmed = String(rawUrl).trim();
+  if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('javascript:')) return null;
+  try {
+    return new URL(trimmed, baseUrl).href;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeAgeRating(raw) {
+  if (!raw) return null;
+  const s = String(raw).toUpperCase().trim();
+  if (/\b(?:TP|APTA|TODOS\s+LOS\s+P[UÚ]BLICOS|0\+?)\b/.test(s)) return 'TP';
+  const m = /(?:M\s*-?\s*|\+|MAYORES\s+DE\s+|NRM\s*|NR\s*)?(7|12|16|18)\b/.exec(s);
+  if (m) return `M-${m[1]}`;
+  return null;
+}
+
+function parseDurationMinutes(raw) {
+  if (typeof raw === 'number' && raw >= 20 && raw <= 420) return Math.round(raw);
+  if (!raw) return null;
+  const s = String(raw);
+  // ISO 8601 duration PT1H58M or PT118M
+  const isoM = /PT(?:(\d+)H)?(?:(\d+)M)?/i.exec(s);
+  if (isoM && (isoM[1] || isoM[2])) {
+    const total = (parseInt(isoM[1] || '0', 10) * 60) + parseInt(isoM[2] || '0', 10);
+    if (total >= 20 && total <= 420) return total;
+  }
+  const hrMin = /(\d+)\s*h(?:oras?)?\s*(\d{1,2})\s*(?:m|min)/i.exec(s);
+  if (hrMin) {
+    const total = parseInt(hrMin[1], 10) * 60 + parseInt(hrMin[2], 10);
+    if (total >= 20 && total <= 420) return total;
+  }
+  const mins = /(\d{2,3})\s*(?:min|minutos|m\.|\')/i.exec(s);
+  if (mins) {
+    const val = parseInt(mins[1], 10);
+    if (val >= 20 && val <= 420) return val;
+  }
+  return null;
+}
+
+function extractCinemaFormatAndVose(rawText, defaultVOSE = false) {
+  const src = String(rawText || '');
+  const hasExplicitDubbed = /\b(?:DOBLADA|VE|V\.E\.|CASTELLANO\s+DOBLAD|ESP\s+DOBLAD)\b/i.test(src);
+  const hasExplicitVOSE =
+    /\b(?:V\.?\s*O\.?\s*S\.?\s*E\.?|V\.?\s*O\.?\s*S\.?\s*C\.?|V\.?\s*O\.?\s*S\.?\s*V\.?|V\.?\s*O\.?\s*S\.?|V\.?\s*O\.?|SUBTITULADA|SUBT\.?|VERSI[OÓ]N\s+ORIGINAL|VERSI[OÓ]\s+ORIGINAL)\b/i.test(
+      src
+    );
+  const isVOSE = hasExplicitVOSE ? true : hasExplicitDubbed ? false : Boolean(defaultVOSE);
+
+  let format = null;
+  if (/\bIMAX\b/i.test(src)) format = 'IMAX';
+  else if (/\b4DX\b/i.test(src)) format = '4DX';
+  else if (/\bScreenX\b/i.test(src)) format = 'ScreenX';
+  else if (/\biSense\b/i.test(src)) format = 'iSense';
+  else if (/\b35\s*mm\b/i.test(src)) format = '35mm';
+  else if (/\b16\s*mm\b/i.test(src)) format = '16mm';
+  else if (/\bDCP\b/i.test(src)) format = 'DCP';
+  else if (/\bDolby\s*Atmos\b/i.test(src)) format = 'Atmos';
+  else if (/\b3D\b/i.test(src)) format = '3D';
+  else if (/\b2D\b/i.test(src)) format = '2D';
+
+  const cleanedTitle = src
+    .replace(/\(\s*(?:V\.?\s*O\.?\s*S\.?\s*E\.?|V\.?\s*O\.?\s*S\.?|V\.?\s*O\.?|VOSE|VOS|VO|2D|3D|IMAX|4DX|ScreenX|iSense|DCP|35mm|16mm|DIGITAL|DOBLADA)\s*\)/gi, '')
+    .replace(/\[\s*(?:V\.?\s*O\.?\s*S\.?\s*E\.?|VOSE|VOS|VO|2D|3D|IMAX|4DX|ScreenX|iSense|DCP|35mm)\s*\]/gi, '')
+    .replace(/\s*[-–—|·]\s*(?:V\.?\s*O\.?\s*S\.?\s*E\.?|VOSE|VOS|IMAX|4DX|ScreenX|iSense)\s*$/gi, '')
+    .replace(/\s+\b(?:V\.?O\.?S\.?E\.?|VOSE)\b\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return {
+    isVOSE,
+    format,
+    language: isVOSE ? 'VO' : 'ES',
+    subtitles: isVOSE ? 'ES' : null,
+    cleanedTitle: cleanedTitle || src.trim(),
+  };
+}
+
+function sessionTimeSortKey(timeStr) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || '').trim());
+  if (!m) return 9999;
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  // Midnight screenings (00:00-04:59) sort after 23:59 so they stay on the evening date
+  return (hh < 5 ? hh + 24 : hh) * 60 + mm;
+}
+
+function normalizeMovieSessionList(rawSessions) {
+  if (!Array.isArray(rawSessions)) return [];
+  const map = new Map();
+  for (const s of rawSessions) {
+    if (!s) continue;
+    const rawTime = typeof s === 'string' ? s : String(s.time || '').trim();
+    const tm = /(\d{1,2})[:.hH](\d{2})/.exec(rawTime);
+    if (!tm) continue;
+    const hhNum = parseInt(tm[1], 10);
+    const mmNum = parseInt(tm[2], 10);
+    if (hhNum > 24 || mmNum > 59) continue;
+    const time = `${String(hhNum % 24).padStart(2, '0')}:${String(mmNum).padStart(2, '0')}`;
+    const isVOSE = Boolean(typeof s === 'object' ? s.isVOSE : false);
+    const format = typeof s === 'object' && s.format ? String(s.format).trim() : null;
+    const key = `${time}|${isVOSE ? '1' : '0'}|${(format || '').toUpperCase()}`;
+
+    const normalized = {
+      time,
+      isVOSE,
+      language: (typeof s === 'object' && s.language) || (isVOSE ? 'VO' : 'ES'),
+      subtitles: (typeof s === 'object' && s.subtitles) || (isVOSE ? 'ES' : null),
+      format,
+      hall: (typeof s === 'object' && s.hall) || null,
+      ticketUrl: (typeof s === 'object' && s.ticketUrl) || null,
+    };
+
+    if (!map.has(key)) {
+      map.set(key, normalized);
+    } else {
+      const prev = map.get(key);
+      map.set(key, {
+        ...prev,
+        hall: prev.hall || normalized.hall,
+        ticketUrl: prev.ticketUrl || normalized.ticketUrl,
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => sessionTimeSortKey(a.time) - sessionTimeSortKey(b.time));
+}
+
+function detectCinemaCycleAndEventType(cinema, title, cycleName, extraText = '') {
+  const combined = `${title || ''} ${cycleName || ''} ${extraText || ''}`;
+  let detectedCycle = cycleName ? String(cycleName).trim() : null;
+
+  if (!detectedCycle) {
+    if (/cine\s*club\s*lys/i.test(combined)) detectedCycle = 'Cine Club Lys';
+    else if (/anime\s*saikuru/i.test(combined)) detectedCycle = 'Anime Saikuru';
+    else if (/proyecto\s*viridiana/i.test(combined)) detectedCycle = 'Proyecto Viridiana';
+    else if (cinema.id === 'la-filmoteca') detectedCycle = 'La Filmoteca';
+    else if (/\b(?:[oó]pera|ballet|royal\s+opera|met\s+opera)\b/i.test(combined)) detectedCycle = 'Ópera y Ballet';
+    else if (/\b(?:marat[oó]n|preestreno|evento\s+especial|sesi[oó]n\s+especial|preventa)\b/i.test(combined)) {
+      detectedCycle = 'Evento especial';
+    }
+  }
+
+  const isSpecial =
+    cinema.defaultEventType === 'especial' ||
+    Boolean(detectedCycle) ||
+    /\b(?:ciclo|cicle|filmoteca|cine\s*club|saikuru|viridiana|[oó]pera|ballet|preestreno|preventa|evento\s+especial|marat[oó]n|doble\s+sesi[oó]n|autocine)\b/i.test(
+      combined
+    );
+
+  return {
+    eventType: isSpecial ? 'especial' : 'cartelera',
+    cycleName: detectedCycle,
+  };
+}
+
+function parseSpanishOrIsoDate(rawStr, referenceISO) {
+  if (!rawStr) return null;
+  const s = String(rawStr).trim();
+  const isoM = /(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (isoM) return `${isoM[1]}-${isoM[2]}-${isoM[3]}`;
+
+  const dmyM = /(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/.exec(s);
+  if (dmyM) {
+    const day = parseInt(dmyM[1], 10);
+    const mon = parseInt(dmyM[2], 10);
+    const refYear = parseInt(referenceISO.slice(0, 4), 10);
+    let yr = dmyM[3] ? parseInt(dmyM[3], 10) : refYear;
+    if (yr < 100) yr += 2000;
+    if (mon >= 1 && mon <= 12 && day >= 1 && day <= 31) {
+      return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  const lower = s.toLowerCase();
+  if (/\b(?:hoy|hui|today)\b/.test(lower)) return referenceISO;
+  if (/\b(?:ma[ñn]ana|dem[aà]|tomorrow)\b/.test(lower)) return addDaysToISO(referenceISO, 1);
+
+  const monthWordM = /(\d{1,2})\s+(?:de\s+|d['’])?([a-zçà-ú]{3,12})(?:\s+(?:de\s+)?(\d{4}))?/i.exec(lower);
+  if (monthWordM) {
+    const day = parseInt(monthWordM[1], 10);
+    const monKey = monthWordM[2].normalize('NFD').replace(/[\u0300-\u036f]/g, '').slice(0, 3);
+    const mon = MONTH_MAP[monthWordM[2]] || MONTH_MAP[monKey];
+    if (mon && day >= 1 && day <= 31) {
+      const refYear = parseInt(referenceISO.slice(0, 4), 10);
+      const refMonth = parseInt(referenceISO.slice(5, 7), 10);
+      let yr = monthWordM[3] ? parseInt(monthWordM[3], 10) : refYear;
+      if (!monthWordM[3] && mon < refMonth - 2) yr += 1;
+      return `${yr}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  return null;
+}
+
+function buildCinemaEventRecord(cinema, raw, todayISO, updatedAtISO) {
+  const { isVOSE, format, language, subtitles, cleanedTitle } = extractCinemaFormatAndVose(
+    raw.title,
+    Boolean(cinema.defaultVOSE)
+  );
+  const title = cleanedTitle;
+  if (!title || title.length < 2) return null;
+
+  const date = parseSpanishOrIsoDate(raw.date, todayISO) || todayISO;
+  const rawSessions = (raw.sessions || []).map((s) => {
+    if (typeof s === 'string') {
+      return {
+        time: s,
+        isVOSE: Boolean(raw.isVOSE || isVOSE),
+        language,
+        subtitles,
+        format: raw.format || format,
+        hall: raw.hall || null,
+        ticketUrl: raw.ticketUrl || null,
+      };
+    }
+    const extraMeta = extractCinemaFormatAndVose(
+      `${s.label || ''} ${s.format || ''} ${s.version || ''}`,
+      Boolean(s.isVOSE ?? raw.isVOSE ?? isVOSE)
+    );
+    return {
+      time: s.time,
+      isVOSE: Boolean(s.isVOSE ?? extraMeta.isVOSE),
+      language: s.language || extraMeta.language,
+      subtitles: s.subtitles || extraMeta.subtitles,
+      format: s.format || extraMeta.format || raw.format || format,
+      hall: s.hall || raw.hall || null,
+      ticketUrl: s.ticketUrl || raw.ticketUrl || null,
+    };
+  });
+
+  const sessions = normalizeMovieSessionList(rawSessions);
+  if (sessions.length === 0) return null;
+
+  const { eventType, cycleName } = detectCinemaCycleAndEventType(
+    cinema,
+    title,
+    raw.cycleName,
+    `${raw.synopsis || ''} ${raw.extraText || ''}`
+  );
+  const effectiveEventType = raw.eventType === 'especial' ? 'especial' : eventType;
+
+  // Enforce Hybrid Scheduling Horizon: cartelera <= 7 days (0..+6), especial <= 31 days (0..+31)
+  const dayDiff = diffDaysISO(date, todayISO);
+  if (dayDiff < 0) return null;
+  const maxDays = effectiveEventType === 'especial' ? 31 : 6;
+  if (dayDiff > maxDays) return null;
+
+  const slug = normalizeCinemaSlug(title);
+  const firstTime = sessions[0]?.time || '18:00';
+  const startDate = `${date}T${firstTime}:00`;
+  const posterUrl = raw.posterUrl ? resolveAbsoluteCinemaUrl(raw.posterUrl, cinema.url) : null;
+  const sourceUrl = resolveAbsoluteCinemaUrl(raw.sourceUrl || raw.ticketUrl, cinema.url) || cinema.url;
+  const hasVOSE = Boolean(raw.hasVOSE || sessions.some((s) => s.isVOSE));
+  const synopsis = raw.synopsis ? decodeHtmlEntitiesCinema(raw.synopsis).slice(0, 600) : null;
+
+  return {
+    id: `cine-${cinema.id}-${slug}-${date}`,
+    category: 'cine',
+    eventType: effectiveEventType,
+    title,
+    originalTitle: raw.originalTitle ? decodeHtmlEntitiesCinema(raw.originalTitle) : null,
+    director: raw.director ? decodeHtmlEntitiesCinema(raw.director) : null,
+    durationMinutes: parseDurationMinutes(raw.durationMinutes),
+    ageRating: normalizeAgeRating(raw.ageRating),
+    synopsis,
+    posterUrl,
+    venue: {
+      id: cinema.id,
+      name: cinema.name,
+      zone: cinema.zone,
+      neighborhood: cinema.neighborhood,
+      address: cinema.address,
+    },
+    date,
+    hasVOSE,
+    cycleName: cycleName || null,
+    sessions,
+    sourceUrl,
+    updatedAt: updatedAtISO,
+
+    // Standard EventItem compatibility fields for Micalet feed
+    startDate,
+    venueName: cinema.name,
+    address: cinema.address,
+    description: synopsis || `${cinema.name} · ${cinema.neighborhood}`,
+    imageUrl: posterUrl || undefined,
+    url: sourceUrl,
+    ticketUrl: sessions.find((s) => s.ticketUrl)?.ticketUrl || sourceUrl,
+    isFree: false,
+    source: `cine-${cinema.id}`,
+    authority: 1,
+  };
+}
+
+function groupAndDeduplicateCinemaEvents(events) {
+  const byKey = new Map();
+  for (const ev of events) {
+    if (!ev || ev.category !== 'cine') continue;
+    const key = `${ev.venue?.id || ev.venueName}|${normalizeCinemaSlug(ev.title)}|${ev.date}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, { ...ev, sessions: normalizeMovieSessionList(ev.sessions) });
+    } else {
+      const prev = byKey.get(key);
+      const mergedSessions = normalizeMovieSessionList([...(prev.sessions || []), ...(ev.sessions || [])]);
+      const firstTime = mergedSessions[0]?.time || '18:00';
+      byKey.set(key, {
+        ...prev,
+        eventType: prev.eventType === 'especial' || ev.eventType === 'especial' ? 'especial' : 'cartelera',
+        originalTitle: prev.originalTitle || ev.originalTitle || null,
+        director: prev.director || ev.director || null,
+        durationMinutes: prev.durationMinutes || ev.durationMinutes || null,
+        ageRating: prev.ageRating || ev.ageRating || null,
+        synopsis:
+          prev.synopsis && prev.synopsis.length >= (ev.synopsis?.length || 0)
+            ? prev.synopsis
+            : ev.synopsis || prev.synopsis || null,
+        posterUrl: prev.posterUrl || ev.posterUrl || null,
+        imageUrl: prev.posterUrl || ev.posterUrl || prev.imageUrl || ev.imageUrl || undefined,
+        cycleName: prev.cycleName || ev.cycleName || null,
+        hasVOSE: Boolean(prev.hasVOSE || ev.hasVOSE || mergedSessions.some((s) => s.isVOSE)),
+        sessions: mergedSessions,
+        startDate: `${prev.date}T${firstTime}:00`,
+      });
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+/**
+ * Cross-Venue Poster & Metadata Deduplication (Design Doc Section 5.3):
+ * Propagates clean posterUrl, director, durationMinutes, ageRating, and synopsis
+ * from richer venue payloads to venues screening the same film with missing metadata.
+ */
+function propagateCrossVenueCinemaMetadata(events) {
+  const metaByFilm = new Map();
+  for (const ev of events) {
+    const filmKey = normalizeCinemaSlug(ev.title);
+    if (!filmKey) continue;
+    const prev = metaByFilm.get(filmKey) || {};
+    metaByFilm.set(filmKey, {
+      posterUrl: prev.posterUrl || ev.posterUrl || null,
+      director: prev.director || ev.director || null,
+      durationMinutes: prev.durationMinutes || ev.durationMinutes || null,
+      ageRating: prev.ageRating || ev.ageRating || null,
+      originalTitle: prev.originalTitle || ev.originalTitle || null,
+      synopsis:
+        prev.synopsis && prev.synopsis.length >= (ev.synopsis?.length || 0)
+          ? prev.synopsis
+          : ev.synopsis || prev.synopsis || null,
+    });
+  }
+
+  return events.map((ev) => {
+    const filmKey = normalizeCinemaSlug(ev.title);
+    const shared = metaByFilm.get(filmKey);
+    if (!shared) return ev;
+    const posterUrl = ev.posterUrl || shared.posterUrl || null;
+    const synopsis = ev.synopsis || shared.synopsis || null;
+    return {
+      ...ev,
+      posterUrl,
+      imageUrl: posterUrl || ev.imageUrl,
+      director: ev.director || shared.director || null,
+      durationMinutes: ev.durationMinutes || shared.durationMinutes || null,
+      ageRating: ev.ageRating || shared.ageRating || null,
+      originalTitle: ev.originalTitle || shared.originalTitle || null,
+      synopsis,
+      description: synopsis || ev.description,
+    };
+  });
+}
+
+async function fetchCinemaHtml(url, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': CINEMA_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-ES,es;q=0.9,ca;q=0.8,en;q=0.7',
+      },
+      redirect: 'follow',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Extracts Schema.org JSON-LD ScreeningEvent / Movie / Event blocks from any cinema HTML page.
+ */
+function extractJsonLdCinemaEntries(html, cinema, todayISO) {
+  const results = [];
+  const regex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      const nodes = [];
+      const collect = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        if (Array.isArray(obj)) {
+          obj.forEach(collect);
+          return;
+        }
+        if (Array.isArray(obj['@graph'])) obj['@graph'].forEach(collect);
+        nodes.push(obj);
+      };
+      collect(parsed);
+
+      for (const node of nodes) {
+        const typeStr = Array.isArray(node['@type']) ? node['@type'].join(' ') : String(node['@type'] || '');
+        if (!/ScreeningEvent|Movie|Event/i.test(typeStr)) continue;
+        const work = node.workPresented || node;
+        const title = decodeHtmlEntitiesCinema(work.name || node.name || '');
+        if (!title || title.length < 2) continue;
+
+        const startIso = node.startDate || '';
+        const date = parseSpanishOrIsoDate(startIso, todayISO);
+        const timeM = /T(\d{2}:\d{2})/.exec(startIso);
+        const poster =
+          typeof (work.image || node.image) === 'string'
+            ? work.image || node.image
+            : (work.image?.url || node.image?.url || null);
+        const director =
+          typeof work.director === 'string'
+            ? work.director
+            : Array.isArray(work.director)
+            ? work.director.map((d) => d?.name || d).filter(Boolean).join(', ')
+            : work.director?.name || null;
+
+        if (date && timeM) {
+          results.push({
+            title,
+            date,
+            sessions: [
+              {
+                time: timeM[1],
+                isVOSE: /vose|v\.o\.s|subtitul/i.test(`${node.videoFormat || ''} ${node.inLanguage || ''} ${node.name || ''}`) || Boolean(cinema.defaultVOSE),
+                format: node.videoFormat || null,
+                ticketUrl: node.offers?.url || node.url || null,
+              },
+            ],
+            director,
+            durationMinutes: parseDurationMinutes(work.duration || node.duration),
+            ageRating: normalizeAgeRating(work.contentRating),
+            synopsis: decodeHtmlEntitiesCinema(work.description || node.description || ''),
+            posterUrl: poster,
+            sourceUrl: node.url || cinema.url,
+          });
+        }
+      }
+    } catch {}
+  }
+  return results;
+}
+
+/**
+ * Generic HTML card/article extractor (uses cheerio when available, regex fallback otherwise).
+ */
+async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
+  const entries = [...extractJsonLdCinemaEntries(html, cinema, todayISO)];
+  const $ = await getOptionalCheerio().then((ch) => (ch ? ch.load(html) : null));
+  const timeRegex = /\b([01]?\d|2[0-3]):([0-5]\d)\b/g;
+
+  if ($) {
+    const cardSelectors = options.cardSelectors || [
+      'article',
+      '.pelicula',
+      '.movie',
+      '.film',
+      '.cartelera-item',
+      '.programa-item',
+      '.ficha',
+      '.event',
+      '.card',
+      'li[class*="pelicula"]',
+      'div[class*="pelicula"]',
+      'div[class*="movie"]',
+      'div[class*="film"]',
+      'div[class*="session"]',
+    ];
+
+    $(cardSelectors.join(', ')).each((_, el) => {
+      const $el = $(el);
+      const rawHeading =
+        $el.find('h1, h2, h3, h4, .title, .titulo, .movie-title, .film-title').first().text() ||
+        $el.find('a[title]').first().attr('title') ||
+        '';
+      const title = decodeHtmlEntitiesCinema(rawHeading);
+      if (!title || title.length < 2 || title.length > 140) return;
+
+      const blockText = decodeHtmlEntitiesCinema($el.text());
+      const times = [];
+      let tm;
+      timeRegex.lastIndex = 0;
+      while ((tm = timeRegex.exec(blockText)) !== null) {
+        times.push(`${tm[1].padStart(2, '0')}:${tm[2]}`);
+      }
+      if (times.length === 0) return;
+
+      const dateAttr =
+        $el.attr('data-date') ||
+        $el.find('[datetime]').first().attr('datetime') ||
+        $el.find('[data-date]').first().attr('data-date') ||
+        $el.closest('[data-date]').attr('data-date') ||
+        blockText;
+      const date = parseSpanishOrIsoDate(dateAttr, todayISO) || todayISO;
+
+      const imgEl = $el.find('img').first();
+      const posterUrl =
+        imgEl.attr('data-src') ||
+        imgEl.attr('data-lazy-src') ||
+        imgEl.attr('src') ||
+        null;
+      const linkHref = $el.find('a[href]').first().attr('href') || cinema.url;
+
+      const directorM = /(?:Direcci[oó]n|Director(?:a)?|Dir\.?)\s*[:\-]\s*([^|\n·•]{2,60})/i.exec(blockText);
+      const cycleText = $el.find('.ciclo, .cicle, .cycle, .categoria, .category, .tag').first().text();
+      const meta = extractCinemaFormatAndVose(blockText, Boolean(cinema.defaultVOSE));
+
+      entries.push({
+        title,
+        date,
+        sessions: times.map((t) => ({
+          time: t,
+          isVOSE: meta.isVOSE,
+          format: meta.format,
+          ticketUrl: resolveAbsoluteCinemaUrl(linkHref, cinema.url),
+        })),
+        director: directorM ? directorM[1].trim() : null,
+        durationMinutes: parseDurationMinutes(blockText),
+        ageRating: normalizeAgeRating(blockText),
+        synopsis: decodeHtmlEntitiesCinema($el.find('p, .sinopsis, .synopsis, .description').first().text() || ''),
+        posterUrl,
+        cycleName: decodeHtmlEntitiesCinema(cycleText || '') || null,
+        sourceUrl: resolveAbsoluteCinemaUrl(linkHref, cinema.url) || cinema.url,
+        extraText: blockText.slice(0, 300),
+      });
+    });
+  } else {
+    // Zero-dependency HTML fallback when cheerio is not installed
+    const blockRegex = /<(?:article|div|li)[^>]*(?:pelicula|movie|film|cartelera|program|event|card)[^>]*>([\s\S]{40,3500}?)<\/(?:article|div|li)>/gi;
+    let m;
+    while ((m = blockRegex.exec(html)) !== null) {
+      const snippet = m[1];
+      const hMatch = /<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/i.exec(snippet);
+      const title = stripHtmlTagsCinema(hMatch ? hMatch[1] : '');
+      if (!title || title.length < 2 || title.length > 140) continue;
+
+      const text = stripHtmlTagsCinema(snippet);
+      const times = [];
+      let tm;
+      timeRegex.lastIndex = 0;
+      while ((tm = timeRegex.exec(text)) !== null) {
+        times.push(`${tm[1].padStart(2, '0')}:${tm[2]}`);
+      }
+      if (times.length === 0) continue;
+
+      const imgM = /<img[^>]+(?:data-src|src)=["']([^"']+)["']/i.exec(snippet);
+      const hrefM = /<a[^>]+href=["']([^"']+)["']/i.exec(snippet);
+      const date = parseSpanishOrIsoDate(text, todayISO) || todayISO;
+      const meta = extractCinemaFormatAndVose(text, Boolean(cinema.defaultVOSE));
+
+      entries.push({
+        title,
+        date,
+        sessions: times.map((t) => ({
+          time: t,
+          isVOSE: meta.isVOSE,
+          format: meta.format,
+          ticketUrl: hrefM ? resolveAbsoluteCinemaUrl(hrefM[1], cinema.url) : null,
+        })),
+        durationMinutes: parseDurationMinutes(text),
+        ageRating: normalizeAgeRating(text),
+        posterUrl: imgM ? imgM[1] : null,
+        sourceUrl: hrefM ? resolveAbsoluteCinemaUrl(hrefM[1], cinema.url) : cinema.url,
+        extraText: text.slice(0, 300),
+      });
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * Recursively extracts cinema movie + showtime entries from arbitrary JSON API payloads
+ * (used by Tier 2 chains: Yelmo, Cinesa, Kinépolis, Ocine, and Tier 3 Flutter Web Cines ABC).
+ */
+function extractCinemaEntriesFromApiJson(payload, cinema, todayISO, options = {}) {
+  const entries = [];
+  const forceVOSE = Boolean(options.forceVOSE || cinema.defaultVOSE);
+  const visited = new Set();
+
+  const walk = (node, context = {}) => {
+    if (!node || typeof node !== 'object' || visited.has(node)) return;
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, context);
+      return;
+    }
+
+    // Detect movie-like object
+    const rawTitle =
+      node.Title ||
+      node.title ||
+      node.MovieTitle ||
+      node.movieTitle ||
+      node.FilmTitle ||
+      node.filmTitle ||
+      node.Name ||
+      node.name ||
+      node.titulo ||
+      node.Titulo ||
+      context.title;
+
+    const rawPoster =
+      node.Poster ||
+      node.poster ||
+      node.PosterUrl ||
+      node.posterUrl ||
+      node.ImageUrl ||
+      node.imageUrl ||
+      node.GraphicUrl ||
+      node.cartel ||
+      node.imagen ||
+      context.posterUrl;
+
+    const rawDirector =
+      node.Director || node.director || node.direccion || context.director || null;
+    const rawDuration =
+      node.RunTime ||
+      node.runtime ||
+      node.Duration ||
+      node.duration ||
+      node.duracion ||
+      context.durationMinutes ||
+      null;
+    const rawSynopsis =
+      node.Synopsis ||
+      node.synopsis ||
+      node.Description ||
+      node.description ||
+      node.sinopsis ||
+      context.synopsis ||
+      null;
+    const rawRating =
+      node.Rating || node.rating || node.AgeRating || node.calificacion || context.ageRating || null;
+
+    const rawDate =
+      node.ShowtimeDate ||
+      node.showtimeDate ||
+      node.BusinessDate ||
+      node.businessDate ||
+      node.SessionDate ||
+      node.sessionDate ||
+      node.Date ||
+      node.date ||
+      node.fecha ||
+      context.date;
+
+    const nextCtx = {
+      title: typeof rawTitle === 'string' && rawTitle.length >= 2 && rawTitle.length <= 150 ? rawTitle : context.title,
+      posterUrl: typeof rawPoster === 'string' ? rawPoster : context.posterUrl,
+      director: typeof rawDirector === 'string' ? rawDirector : context.director,
+      durationMinutes: rawDuration ?? context.durationMinutes,
+      synopsis: typeof rawSynopsis === 'string' ? rawSynopsis : context.synopsis,
+      ageRating: typeof rawRating === 'string' ? rawRating : context.ageRating,
+      date: parseSpanishOrIsoDate(rawDate, todayISO) || context.date,
+      sourceUrl: node.Url || node.url || node.TicketUrl || node.ticketUrl || context.sourceUrl,
+      extraText: `${node.Format || ''} ${node.Version || ''} ${node.Language || ''} ${node.Attributes || ''} ${Array.isArray(node.AttributeIds) ? node.AttributeIds.join(' ') : ''}`,
+    };
+
+    // Detect session-like leaf
+    const rawTimeCandidate =
+      node.Showtime ||
+      node.showtime ||
+      node.StartTime ||
+      node.startTime ||
+      node.SessionTime ||
+      node.sessionTime ||
+      node.Time ||
+      node.time ||
+      node.hora ||
+      node.Hora ||
+      node.ShowtimeDateTime ||
+      node.startDateTime;
+
+    if (rawTimeCandidate && nextCtx.title) {
+      const timeStr = String(rawTimeCandidate);
+      const isoDateFromTime = parseSpanishOrIsoDate(timeStr, todayISO);
+      const timeM = /(?:T|\s|^)(\d{1,2})[:.hH](\d{2})/.exec(timeStr);
+      if (timeM) {
+        const hh = String(parseInt(timeM[1], 10) % 24).padStart(2, '0');
+        const mm = timeM[2];
+        const meta = extractCinemaFormatAndVose(
+          `${nextCtx.title} ${nextCtx.extraText} ${node.Subtitles || ''} ${node.ScreenName || ''}`,
+          forceVOSE
+        );
+
+        entries.push({
+          title: nextCtx.title,
+          date: isoDateFromTime || nextCtx.date || todayISO,
+          sessions: [
+            {
+              time: `${hh}:${mm}`,
+              isVOSE: forceVOSE || meta.isVOSE,
+              format: meta.format,
+              hall: node.ScreenName || node.Hall || node.sala || null,
+              ticketUrl: node.BookingUrl || node.TicketUrl || node.ticketUrl || nextCtx.sourceUrl || null,
+            },
+          ],
+          director: nextCtx.director,
+          durationMinutes: nextCtx.durationMinutes,
+          ageRating: nextCtx.ageRating,
+          synopsis: nextCtx.synopsis,
+          posterUrl: nextCtx.posterUrl,
+          sourceUrl: nextCtx.sourceUrl || cinema.url,
+          extraText: nextCtx.extraText,
+        });
+      }
+    }
+
+    for (const val of Object.values(node)) {
+      if (val && typeof val === 'object') {
+        walk(val, nextCtx);
+      }
+    }
+  };
+
+  walk(payload, {});
+  return entries;
+}
+
+/**
+ * Tier 1 Scraper (6 lightweight HTTP GET venues):
+ * Cines Lys, Cines Babel, La Filmoteca (IVC), Cinestudio d'Or, Autocine STAR, Cines MN4
+ */
+async function scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO) {
+  const urlsToFetch = [cinema.url, ...(cinema.secondaryUrls || [])];
+  const rawEntries = [];
+
+  for (const targetUrl of urlsToFetch) {
+    try {
+      const html = await fetchCinemaHtml(targetUrl, 15000);
+      const extracted = await extractHtmlCinemaCards(html, cinema, todayISO);
+      for (const item of extracted) {
+        if (targetUrl.includes('proximamente')) {
+          item.eventType = 'especial';
+        }
+        rawEntries.push(item);
+      }
+    } catch (err) {
+      console.warn(`[Cine Tier 1] ${cinema.id} (${targetUrl}): ${err.message}`);
+    }
+  }
+
+  return rawEntries
+    .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
+    .filter(Boolean);
+}
+
+/**
+ * Tier 2 & Tier 3 Playwright Scraper with Network JSON Interception + Blocked Images/Fonts
+ * - Tier 2: Yelmo Campanar (+ VOSE feed), Cinesa LUXE Bonaire, Kinépolis València, Ocine Premium Aqua
+ * - Tier 3: Cines ABC Park, Cines ABC El Saler, Cines ABC Gran Turia (Flutter Web API interception)
+ */
+async function scrapePlaywrightCinemaVenue(browser, cinema, todayISO, updatedAtISO) {
+  const urls = [{ url: cinema.url, forceVOSE: Boolean(cinema.defaultVOSE) }];
+  if (cinema.voseUrl) {
+    urls.push({ url: cinema.voseUrl, forceVOSE: true });
+  }
+
+  const rawEntries = [];
+  const context = await browser.newContext({
+    userAgent: CINEMA_USER_AGENT,
+    extraHTTPHeaders: { 'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8' },
+  });
+
+  try {
+    for (const target of urls) {
+      const page = await context.newPage();
+      const interceptedPayloads = [];
+
+      // Block heavy visual assets (images, fonts, media) to stay well within CI time budget
+      await page.route('**/*', (route) => {
+        const resType = route.request().resourceType();
+        if (resType === 'image' || resType === 'font' || resType === 'media') {
+          return route.abort();
+        }
+        return route.continue();
+      });
+
+      page.on('response', async (response) => {
+        try {
+          const ct = (response.headers()['content-type'] || '').toLowerCase();
+          if (!ct.includes('json')) return;
+          const reqUrl = response.url().toLowerCase();
+          if (
+            /movie|film|pelicul|session|sesion|showtime|horario|cartelera|schedule|cinema|vista|kinepolis|cinesa|yelmo|ocine|abc|graphql/i.test(
+              reqUrl
+            )
+          ) {
+            const json = await response.json().catch(() => null);
+            if (json) interceptedPayloads.push(json);
+          }
+        } catch {}
+      });
+
+      try {
+        await page.goto(target.url, {
+          waitUntil: cinema.tier === 3 ? 'networkidle' : 'domcontentloaded',
+          timeout: 15000,
+        });
+        await page.waitForTimeout(cinema.tier === 3 ? 3500 : 2500);
+
+        for (const payload of interceptedPayloads) {
+          const found = extractCinemaEntriesFromApiJson(payload, cinema, todayISO, {
+            forceVOSE: target.forceVOSE,
+          });
+          rawEntries.push(...found);
+        }
+
+        // For Tier 2 HTML/SPA sites, also parse rendered DOM if JSON interception was sparse
+        if (cinema.tier === 2 && rawEntries.length === 0) {
+          const html = await page.content();
+          const domEntries = await extractHtmlCinemaCards(html, cinema, todayISO);
+          for (const item of domEntries) {
+            if (target.forceVOSE) {
+              item.isVOSE = true;
+              item.sessions = (item.sessions || []).map((s) => ({ ...s, isVOSE: true }));
+            }
+            rawEntries.push(item);
+          }
+        }
+      } catch (err) {
+        console.warn(`[Cine Tier ${cinema.tier}] ${cinema.id} (${target.url}): ${err.message}`);
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+  } finally {
+    await context.close().catch(() => {});
+  }
+
+  return rawEntries
+    .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
+    .filter(Boolean);
+}
+
+function loadPreviousCinemaCacheByVenue(outPath, todayISO) {
+  const byVenue = new Map();
+  try {
+    if (!fs.existsSync(outPath)) return byVenue;
+    const raw = JSON.parse(fs.readFileSync(outPath, 'utf-8'));
+    if (!Array.isArray(raw)) return byVenue;
+    for (const ev of raw) {
+      if (ev?.category !== 'cine') continue;
+      const venueId = ev.venue?.id;
+      const dateStr = ev.date || (ev.startDate || '').slice(0, 10);
+      if (!venueId || !dateStr || dateStr < todayISO) continue;
+      if (!byVenue.has(venueId)) byVenue.set(venueId, []);
+      byVenue.get(venueId).push(ev);
+    }
+  } catch {}
+  return byVenue;
+}
+
+async function runCinemaVenueIsolated(cinema, scraperPromiseFn, previousCacheByVenue) {
+  const timeoutMs = cinema.tier === 1 ? 18000 : 28000;
+  try {
+    const result = await Promise.race([
+      scraperPromiseFn(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+      ),
+    ]);
+    if (Array.isArray(result) && result.length > 0) {
+      console.log(`[Cine] ${cinema.name}: scraped ${result.length} movie-date entries`);
+      return result;
+    }
+    const cached = previousCacheByVenue.get(cinema.id) || [];
+    if (cached.length > 0) {
+      console.warn(`[Cine] ${cinema.name}: 0 fresh items; retaining ${cached.length} cached future entries`);
+      return cached;
+    }
+    console.warn(`[Cine] ${cinema.name}: 0 items scraped`);
+    return [];
+  } catch (err) {
+    const cached = previousCacheByVenue.get(cinema.id) || [];
+    console.warn(
+      `[Cine] ${cinema.name} failed (${err.message}); ${
+        cached.length > 0 ? `retaining ${cached.length} cached future entries` : 'skipping venue'
+      }`
+    );
+    return cached;
+  }
+}
+
+async function scrapeAllValenciaCinemas(browser, outPath) {
+  const todayISO = getValenciaTodayISO();
+  const updatedAtISO = new Date().toISOString();
+  const previousCacheByVenue = loadPreviousCinemaCacheByVenue(outPath, todayISO);
+
+  const tier1Venues = VALENCIA_CINEMAS.filter((c) => c.tier === 1);
+  const tier2And3Venues = VALENCIA_CINEMAS.filter((c) => c.tier === 2 || c.tier === 3);
+
+  // Run Tier 1 lightweight HTTP scrapers concurrently
+  const tier1Settled = await Promise.allSettled(
+    tier1Venues.map((cinema) =>
+      runCinemaVenueIsolated(
+        cinema,
+        () => scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO),
+        previousCacheByVenue
+      )
+    )
+  );
+
+  const collected = [];
+  for (const res of tier1Settled) {
+    if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+      collected.push(...res.value);
+    }
+  }
+
+  // Run Tier 2 & Tier 3 Playwright venues sequentially to keep CI memory & CPU stable
+  for (const cinema of tier2And3Venues) {
+    const items = await runCinemaVenueIsolated(
+      cinema,
+      () => scrapePlaywrightCinemaVenue(browser, cinema, todayISO, updatedAtISO),
+      previousCacheByVenue
+    );
+    collected.push(...items);
+  }
+
+  const grouped = groupAndDeduplicateCinemaEvents(collected);
+  const enriched = propagateCrossVenueCinemaMetadata(grouped);
+  console.log(`[Cine] Total consolidated cinema entries across Valencia: ${enriched.length}`);
+  return enriched;
+}
+
+function runCinemaSelfTests() {
+  const assert = (cond, msg) => {
+    if (!cond) throw new Error(`Cinema self-test failed: ${msg}`);
+  };
+  const today = '2026-11-24';
+  const updatedAt = '2026-11-24T06:00:00.000Z';
+
+  // 1. Verify all 13 venues exist (9 city + 4 metro)
+  assert(VALENCIA_CINEMAS.length === 13, `Expected 13 venues, got ${VALENCIA_CINEMAS.length}`);
+  assert(
+    VALENCIA_CINEMAS.filter((v) => v.zone === 'valencia-ciudad').length === 9,
+    'Expected 9 Valencia ciudad venues'
+  );
+  assert(
+    VALENCIA_CINEMAS.filter((v) => v.zone === 'area-metropolitana').length === 4,
+    'Expected 4 Área metropolitana venues'
+  );
+
+  // 2. Verify VOSE + format parsing + midnight screening sort order (Autocine STAR 00:10)
+  const autocine = VALENCIA_CINEMAS.find((v) => v.id === 'autocine-star');
+  const starRec = buildCinemaEventRecord(
+    autocine,
+    {
+      title: 'Dune: Parte Dos (V.O.S.E.)',
+      date: today,
+      sessions: [{ time: '00:10' }, { time: '21:45' }],
+      durationMinutes: '166 min',
+      ageRating: 'NRM 12',
+    },
+    today,
+    updatedAt
+  );
+  assert(starRec && starRec.date === today, 'Midnight screening stays on evening date');
+  assert(starRec.sessions[0].time === '21:45' && starRec.sessions[1].time === '00:10', '00:10 sorts after 21:45');
+  assert(starRec.hasVOSE === true, 'VOSE flag detected');
+  assert(starRec.ageRating === 'M-12', 'Age rating normalized to M-12');
+  assert(starRec.durationMinutes === 166, 'Runtime parsed');
+  assert(starRec.eventType === 'especial', 'Autocine STAR classified as especial');
+
+  // 3. Verify Hybrid Horizon: cartelera capped at +6 days, especial allowed up to +31 days
+  const babel = VALENCIA_CINEMAS.find((v) => v.id === 'cines-babel');
+  const carteleraTooFar = buildCinemaEventRecord(
+    babel,
+    { title: 'Anora', date: addDaysToISO(today, 9), sessions: [{ time: '20:00' }] },
+    today,
+    updatedAt
+  );
+  assert(carteleraTooFar === null, 'Regular cartelera beyond +6 days must be dropped');
+
+  const filmoteca = VALENCIA_CINEMAS.find((v) => v.id === 'la-filmoteca');
+  const filmotecaFar = buildCinemaEventRecord(
+    filmoteca,
+    {
+      title: 'El Verdugo (35mm)',
+      date: addDaysToISO(today, 22),
+      sessions: [{ time: '18:00', format: '35mm', isVOSE: true }],
+      cycleName: 'Clásicos IVC',
+    },
+    today,
+    updatedAt
+  );
+  assert(filmotecaFar !== null && filmotecaFar.eventType === 'especial', 'Filmoteca allowed up to 31 days');
+  assert(filmotecaFar.sessions[0].format === '35mm', '35mm archival format preserved');
+
+  // 4. Verify grouping (One Movie + One Cinema + One Date) + Cross-Venue Poster Deduplication
+  const lys = VALENCIA_CINEMAS.find((v) => v.id === 'cines-lys');
+  const lysA = buildCinemaEventRecord(
+    lys,
+    {
+      title: 'La Habitación de al Lado',
+      date: today,
+      sessions: [{ time: '18:30', isVOSE: false }],
+      posterUrl: 'https://cineslys.com/posters/habitacion.jpg',
+      director: 'Pedro Almodóvar',
+      durationMinutes: 107,
+    },
+    today,
+    updatedAt
+  );
+  const lysB = buildCinemaEventRecord(
+    lys,
+    {
+      title: 'La Habitación de al Lado (VOSE)',
+      date: today,
+      sessions: [{ time: '20:45', isVOSE: true }],
+    },
+    today,
+    updatedAt
+  );
+  const babelSame = buildCinemaEventRecord(
+    babel,
+    {
+      title: 'La Habitación de al Lado',
+      date: today,
+      sessions: [{ time: '19:15' }],
+    },
+    today,
+    updatedAt
+  );
+
+  const grouped = groupAndDeduplicateCinemaEvents([lysA, lysB, babelSame]);
+  assert(grouped.length === 2, `Expected 2 grouped entries (Lys + Babel), got ${grouped.length}`);
+  const lysMerged = grouped.find((e) => e.venue.id === 'cines-lys');
+  assert(lysMerged.sessions.length === 2, 'Lys sessions merged into 1 card');
+  assert(lysMerged.hasVOSE === true, 'Merged Lys card hasVOSE === true');
+
+  const enriched = propagateCrossVenueCinemaMetadata(grouped);
+  const babelEnriched = enriched.find((e) => e.venue.id === 'cines-babel');
+  assert(
+    babelEnriched.posterUrl === 'https://cineslys.com/posters/habitacion.jpg',
+    'Cross-venue poster deduplication propagated posterUrl'
+  );
+  assert(babelEnriched.director === 'Pedro Almodóvar', 'Cross-venue metadata propagated director');
+
+  console.log('ALL CINEMA SCRAPER SELF-TESTS PASSED (14/14 assertions)');
+}
+
 async function main() {
   console.log('Launching headless browser...');
   const browser = await chromium.launch({ headless: true });
@@ -3039,6 +4317,17 @@ async function main() {
     console.error('Levante UD error:', e.message);
   }
 
+  const outDir = path.join(__dirname, 'public');
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+  const outPath = path.join(outDir, 'events.json');
+
+  let cinemaEvents = [];
+  try {
+    cinemaEvents = await scrapeAllValenciaCinemas(browser, outPath);
+  } catch (e) {
+    console.error('Valencia Cinemas pipeline error:', e.message);
+  }
+
   await browser.close();
 
   const combined = [
@@ -3055,6 +4344,7 @@ async function main() {
     ...taliaEvents,
     ...mutantEvents,
     ...auEvents,
+    ...cinemaEvents,
   ];
 
   console.log(`Total events consolidated before validation: ${combined.length}`);
@@ -3219,6 +4509,18 @@ async function main() {
   }
 
   function areEventsDuplicates(e1, e2) {
+    const isCine = e1.category === 'cine' || e2.category === 'cine';
+    if (isCine) {
+      if (e1.category !== e2.category) return false;
+      const d1 = e1.date || (e1.startDate || '').slice(0, 10);
+      const d2 = e2.date || (e2.startDate || '').slice(0, 10);
+      if (!d1 || !d2 || d1 !== d2) return false;
+      const vId1 = e1.venue?.id || cleanVenueForMatching(e1.venueName);
+      const vId2 = e2.venue?.id || cleanVenueForMatching(e2.venueName);
+      if (!vId1 || !vId2 || vId1 !== vId2) return false;
+      return normalizeCinemaSlug(e1.title) === normalizeCinemaSlug(e2.title);
+    }
+
     const isEsports = e1.category === 'esports' || e2.category === 'esports';
     if (isEsports) {
       if (e1.category !== e2.category) return false;
@@ -3348,6 +4650,28 @@ async function main() {
     if (!base.ticketUrlEs && other.ticketUrlEs) base.ticketUrlEs = other.ticketUrlEs;
     if (!base.ticketUrlVa && other.ticketUrlVa) base.ticketUrlVa = other.ticketUrlVa;
 
+    if (base.category === 'cine' || other.category === 'cine') {
+      const mergedSessions = normalizeMovieSessionList([
+        ...(base.sessions || []),
+        ...(other.sessions || []),
+      ]);
+      base.sessions = mergedSessions;
+      base.hasVOSE = Boolean(base.hasVOSE || other.hasVOSE || mergedSessions.some((s) => s.isVOSE));
+      base.posterUrl = base.posterUrl || other.posterUrl || null;
+      if (base.posterUrl) base.imageUrl = base.posterUrl;
+      base.director = base.director || other.director || null;
+      base.durationMinutes = base.durationMinutes || other.durationMinutes || null;
+      base.ageRating = base.ageRating || other.ageRating || null;
+      base.originalTitle = base.originalTitle || other.originalTitle || null;
+      base.cycleName = base.cycleName || other.cycleName || null;
+      base.synopsis =
+        base.synopsis && base.synopsis.length >= (other.synopsis?.length || 0)
+          ? base.synopsis
+          : other.synopsis || base.synopsis || null;
+      base.eventType =
+        base.eventType === 'especial' || other.eventType === 'especial' ? 'especial' : 'cartelera';
+    }
+
     return base;
   }
 
@@ -3382,7 +4706,8 @@ async function main() {
     }
     if (isAbono(ev.title, ev.description)) return false;
     if (isSocialOrJunk(ev.title, ev.url || ev.ticketUrl)) return false;
-    if (isCinemaOrMovie(ev.title, ev.description, '', ev.category)) return false;
+    // Preserve official cinema pipeline events while filtering ungrouped movie posts from third-party cultural agendas
+    if (ev.category !== 'cine' && isCinemaOrMovie(ev.title, ev.description, '', ev.category)) return false;
     return true;
   });
 
@@ -3391,10 +4716,6 @@ async function main() {
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
   );
 
-  const outDir = path.join(__dirname, 'public');
-  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-
-  const outPath = path.join(outDir, 'events.json');
   if (finalEvents.length === 0 && fs.existsSync(outPath)) {
     console.warn('Scraper collected 0 events; keeping previous events.json.');
     return;
@@ -3404,7 +4725,11 @@ async function main() {
   console.log(`Saved ${finalEvents.length} consolidated events to public/events.json`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.argv.includes('--test-cinema')) {
+  runCinemaSelfTests();
+} else {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
