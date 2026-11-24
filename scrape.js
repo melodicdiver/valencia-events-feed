@@ -280,15 +280,308 @@ function normalizeKey(str) {
   return stripAccents(str || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+// Mixed-case tokens that must preserve exact capitalization across titles and club names
+const SPECIAL_MIXED_CASE = {
+  // General sports, venues & brands
+  MOTOGP: 'MotoGP',
+  LALIGA: 'LaLiga',
+  MUBAV: 'MuBAV',
+  MUVIM: 'MuVIM',
+  CAIXAFORUM: 'CaixaForum',
+  LAGRANJA: 'LaGranja',
+  PLAZETA: 'PlaZeta',
+  "L'ETNO": "L'ETNO",
+  'L’ETNO': 'L’ETNO',
+  // Football & basketball clubs / title sponsors with canonical mixed casing
+  VFB: 'VfB',
+  VFL: 'VfL',
+  TSV: 'TSV',
+  ELPOZO: 'ElPozo',
+  'KIDS&US': 'Kids&Us',
+  MORABANC: 'MoraBanc',
+  'INNOVA-TSN': 'Innova-TSN',
+  'U-BT': 'U-BT',
+  '7BET': '7Bet',
+  '7BET-LIETKABELIS': '7Bet-Lietkabelis',
+  'ESBVA-LM': 'ESBVA-LM',
+  'HUN-THERM': 'HUN-Therm',
+  'SEPSI-SIC': 'Sepsi-SIC',
+};
+
+// Acronyms safe to uppercase globally (strictly non-colliding with ordinary Spanish/Valencian/English words)
+const GENERAL_ACRONYMS = new Set([
+  // General events, sports competitions & cultural venues
+  'BBVA', 'WTA', 'ATP', 'ACB', 'FEB', 'LEB', 'BKT', 'FDM', 'FIH', 'MSC',
+  'UEFA', 'FIFA', 'FIBA', 'NBA', 'WNBA', 'UCL', 'UEL', 'UWCL', 'RFEF', 'FUTFEM', 'LF',
+  'IVAM', 'CCCC', 'TEM', 'CAHH', 'OCCC', 'IVC', 'CTM',
+  'VIP', 'DJ', 'VJ', 'EP', 'LP', 'B2B', 'DVD', 'OST', 'TV', 'FM', 'HD', '3D', '4K', 'VR',
+  '3X3', '15K', '10K', '5K', 'S14', 'S16', 'S18', 'U18', 'U19', 'U20', 'U21',
+  // Unambiguous core sports club acronyms safe even outside "Team A vs Team B" titles
+  'VCF', 'VBC', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'CD', 'RCD', 'RCDE', 'CFF', 'CB',
+  'UCAM', 'BAXI', 'ASVEL', 'LDLC', 'CSKA',
+]);
+
+// Complete football & basketball club acronyms (scoped to sports club names so cultural titles/venues
+// like "Ca Revolta", "El Gato con Botas", "Ad Libitum" or Spanish "se" are NEVER falsely uppercased)
+const SPORTS_CLUB_ACRONYMS = new Set([
+  ...GENERAL_ACRONYMS,
+  // Spanish & Catalan football prefixes/suffixes (LaLiga EA Sports, Hypermotion, RFEF, Liga F, 1ª Fed FutFem, Copa)
+  'CA',   // Club Atlético (CA Osasuna, CA Osasuna Femenino, CA Antoniano)
+  'RC',   // Real Club (RC Celta, RC Deportivo, RC Recreativo de Huelva)
+  'AD',   // Agrupación Deportiva (AD Alcorcón, AD Ceuta FC, AD Mérida)
+  'AE',   // Agrupació Esportiva (AE Prat)
+  'CE',   // Club Esportiu (CE Sabadell, CE Europa, CE L'Hospitalet)
+  'CP',   // Club Polideportivo (CP Cacereño)
+  'SE',   // Societat Esportiva (SE AEM)
+  'AEM',  // SE AEM Lleida
+  'UE',   // Unió Esportiva (UE Cornellà, UE Olot, UE Sant Andreu)
+  'UP',   // Unión Popular (UP Langreo)
+  'FF',   // Fútbol Femenino (Albacete FF)
+  'CDFF', // Club Deportivo de Fútbol Femenino
+  'EDF',  // Escuelas de Fútbol (EDF Logroño)
+  'DUX',  // DUX Logroño, DUX Internacional de Madrid
+  'UDG',  // UDG Tenerife
+  'SAD',  // Sociedad Anónima Deportiva
+  'FCB', 'RMA', 'RSG', 'UDL', 'RCF',
+  // European football prefixes/suffixes (UCL, UEL, UECL, UWCL)
+  'AC',   // Associazione Calcio / Athletic Club (AC Milan, AC Monza, AC Sparta Praha)
+  'AS',   // Associazione Sportiva / Association Sportive (AS Roma, AS Monaco, AS Saint-Étienne)
+  'SSC',  // Società Sportiva Calcio (SSC Napoli)
+  'SS',   // Società Sportiva (SS Lazio)
+  'ACF',  // Associazione Calcio Fiorentina (ACF Fiorentina)
+  'US',   // Unione Sportiva (US Lecce, US Sassuolo)
+  'SC',   // Sport-Club / Sporting Clube (SC Braga, SC Freiburg, SC Heerenveen)
+  'SK',   // Sportklub / Spor Kulübü (SK Sturm Graz, SK Slavia Praha, SK Rapid Wien)
+  'FK',   // Fußballklub / Fudbalski Klub (FK Bodø/Glimt, FK Crvena Zvezda, FK Qarabağ)
+  'PFC', 'PFK', // PFC Ludogorets, PFK CSKA
+  'PAOK', 'AEK', 'OFI', 'APOEL', 'AEL',
+  'PSV', 'AZ', 'NEC', 'NAC', 'PEC', 'RKC',
+  'RB',   // RasenBallsport (RB Leipzig, FC RB Salzburg)
+  'TSG',  // TSG Hoffenheim
+  'FSV',  // FSV Mainz 05
+  'SV',   // Sportverein (SV Werder Bremen, SV Darmstadt 98)
+  'BVB',  // BVB Borussia Dortmund
+  'BSC',  // Hertha BSC, BSC Young Boys
+  'KRC',  // KRC Genk
+  'RSC',  // RSC Anderlecht
+  'KAA',  // KAA Gent
+  'KV',   // Koninklijke Voetbalclub (KV Mechelen, KV Kortrijk)
+  'KVC',  // KVC Westerlo
+  'STVV', // STVV Sint-Truiden
+  'OH',   // Oud-Heverlee (OH Leuven)
+  'OGC',  // OGC Nice
+  'LOSC', // LOSC Lille
+  'AJ',   // Association de la Jeunesse (AJ Auxerre)
+  'SM',   // Stade Malherbe (SM Caen)
+  'PSG', 'OM', 'OL', 'ASNL', 'ESTAC',
+  'SL',   // Sport Lisboa (SL Benfica)
+  'GD',   // Grupo Desportivo (GD Estoril, GD Chaves)
+  'GNK',  // GNK Dinamo Zagreb
+  'HNK',  // HNK Hajduk Split, HNK Rijeka
+  'NK',   // Nogometni Klub (NK Maribor, NK Olimpija)
+  'CS',   // Clubul Sportiv / Club Sportif (CS Rapid București)
+  'FCSB', 'CFR', 'FCV', 'CSM', 'CSU', 'CSA',
+  'LASK', 'WAC', 'SCR',
+  'AIK', 'IFK', 'HJK', 'BK', 'BATE', 'QPR', 'AFC', 'WFC', 'FCW',
+  // Spanish & European basketball prefixes/sponsors (ACB, LF Endesa, EuroLeague, EuroCup, ELW, ECW, BCL)
+  'CAB',  // CAB Estepona
+  'CBF', 'CBC', 'BSR',
+  'SPAR', // SPAR Girona, SPAR Gran Canaria
+  'IDK',  // IDK Euskotren
+  'ASISA',// ASISA Joventut
+  'FIATC',// FIATC Bàsquet Girona
+  'TSN',  // Innova-TSN Leganés
+  'EA7',  // EA7 Emporio Armani Milan
+  'AKTOR',// Panathinaikos AKTOR Athens
+  'IBI',  // Hapoel IBI Tel Aviv
+  'ALBA', // ALBA Berlin
+  'KK',   // Košarkaški Klub (KK Partizan, KK Crvena Zvezda, KK Budućnost)
+  'KKZ',  // KKZ Crvena Zvezda
+  'VOLI', // Budućnost VOLI Podgorica
+  'JL',   // Jeunesse Laïque (Cosea JL Bourg-en-Bresse)
+  'MHP',  // MHP Riesen Ludwigsburg
+  'NINERS', 'SYNTAINICS', 'MBC', 'WKS',
+  'ZVVZ', 'USK', // ZVVZ USK Praha
+  'ÇIMSA', 'CIMSA', 'CBK', // ÇIMSA CBK Mersin
+  'DVTK', 'HUNTHERM', // DVTK HUN-Therm
+  'TARR', 'KSC', // TARR KSC Szekszárd
+  'AZS', 'UMCS', // AZS UMCS Lublin
+  'KGHM', // KGHM BC Polkowice
+  'VBW',  // VBW Gdynia
+  'ESBVA', 'LM', // ESBVA-LM, Villeneuve d'Ascq LM
+  'BLMA', // Basket Lattes Montpellier Agglomération
+  'ACS', 'SIC', // ACS Sepsi-SIC
+  'PF',   // Pallacanestro Femminile (PF Schio)
+  'KP', 'TANY', // KP TANY Brno
+  'MBK',  // MBK Ružomberok
+  'NKA',  // NKA Universitas Pécs
+  'BCF',  // BCF Elfic Fribourg
+  'OGM',  // OGM Ormanspor
+  'BOTAŞ', 'BOTAS', // BOTAŞ SK
+  'SFP',  // Olympiacos SFP
+  'HC', 'HBC', 'VK',
+]);
+
+// Canonical club diacritics & multi-word proper-name fixes for football & basketball teams
+const SPORTS_CLUB_PHRASE_FIXES = [
+  { pattern: /\bCadi\s+La\s+Seu\b/gi, replacement: 'Cadí La Seu' },
+  { pattern: /\bAlaves\b/gi, replacement: 'Alavés' },
+  { pattern: /\bAlcorcon\b/gi, replacement: 'Alcorcón' },
+  { pattern: /\bLeganes\b/gi, replacement: 'Leganés' },
+  { pattern: /\bCadiz\b/gi, replacement: 'Cádiz' },
+  { pattern: /\bMalaga\b/gi, replacement: 'Málaga' },
+  { pattern: /\bCordoba\b/gi, replacement: 'Córdoba' },
+  { pattern: /\bCastellon\b/gi, replacement: 'Castellón' },
+  { pattern: /\bAlmeria\b/gi, replacement: 'Almería' },
+  { pattern: /\bJaen\b/gi, replacement: 'Jaén' },
+  { pattern: /\bCacereno\b/gi, replacement: 'Cacereño' },
+  { pattern: /\bLogrono\b/gi, replacement: 'Logroño' },
+  { pattern: /\bLogrones\b/gi, replacement: 'Logroñés' },
+  { pattern: /\bRio\s+Breogan\b/gi, replacement: 'Río Breogán' },
+  { pattern: /\bBreogan\b/gi, replacement: 'Breogán' },
+  { pattern: /\bBasquet\b/gi, replacement: 'Bàsquet' },
+  { pattern: /\bAtletico\b/gi, replacement: 'Atlético' },
+  { pattern: /\bGijon\b/gi, replacement: 'Gijón' },
+  { pattern: /\bCoruna\b/gi, replacement: 'Coruña' },
+  { pattern: /\bSan\s+Sebastian\b/gi, replacement: 'San Sebastián' },
+  { pattern: /\bDe\s+Los\s+Reyes\b/gi, replacement: 'de los Reyes' },
+  { pattern: /\bDuran\s+Maquinaria\b/gi, replacement: 'Durán Maquinaria' },
+  { pattern: /\bPerfumerias\s+Avenida\b/gi, replacement: 'Perfumerías Avenida' },
+  { pattern: /\bOses\s+Construccion\b/gi, replacement: 'Osés Construcción' },
+  { pattern: /\bFundacion\b/gi, replacement: 'Fundación' },
+  { pattern: /\bUnion\b/gi, replacement: 'Unión' },
+  { pattern: /\bMerida\b/gi, replacement: 'Mérida' },
+  { pattern: /\bCornella\b/gi, replacement: 'Cornellà' },
+  { pattern: /\bFenerbahce\b/gi, replacement: 'Fenerbahçe' },
+  { pattern: /\bBesiktas\b/gi, replacement: 'Beşiktaş' },
+  { pattern: /\bZalgiris\b/gi, replacement: 'Žalgiris' },
+  { pattern: /\bBucuresti\b/gi, replacement: 'București' },
+  { pattern: /\bMunchen\b/gi, replacement: 'München' },
+  { pattern: /\bBuducnost\b/gi, replacement: 'Budućnost' },
+  { pattern: /\bSlask\s+Wroclaw\b/gi, replacement: 'Śląsk Wrocław' },
+  { pattern: /\bNeptunas\s+Klaipeda\b/gi, replacement: 'Neptūnas Klaipėda' },
+  { pattern: /\bSzekszard\b/gi, replacement: 'Szekszárd' },
+  { pattern: /\bPecs\b/gi, replacement: 'Pécs' },
+  { pattern: /\bUni\s+Gy[oő]r\b/gi, replacement: 'UNI Győr' },
+  { pattern: /\bRuzomberok\b/gi, replacement: 'Ružomberok' },
+  { pattern: /\bConstanta\b/gi, replacement: 'Constanța' },
+  { pattern: /\bBahcesehir\b/gi, replacement: 'Bahçeşehir' },
+  { pattern: /\bTurk\s+Telekom\b/gi, replacement: 'Türk Telekom' },
+  { pattern: /\bCimsa\b/gi, replacement: 'ÇIMSA' },
+  { pattern: /\bBotas\b/gi, replacement: 'BOTAŞ' },
+  { pattern: /\bBodo\/Glimt\b/gi, replacement: 'Bodø/Glimt' },
+  { pattern: /\bKobenhavn\b/gi, replacement: 'København' },
+  { pattern: /\bGoteborg\b/gi, replacement: 'Göteborg' },
+  { pattern: /\bZurich\b/gi, replacement: 'Zürich' },
+  { pattern: /\bSaint-Etienne\b/gi, replacement: 'Saint-Étienne' },
+  { pattern: /\bMalmo\b/gi, replacement: 'Malmö' },
+  { pattern: /\bQarabag\b/gi, replacement: 'Qarabağ' },
+];
+
+// False-positive Roman numerals that are actually real Spanish/Catalan/English words
+const ROMAN_FALSE_POSITIVES = new Set([
+  'MI', 'DI', 'LI', 'CI', 'ID', 'IL', 'SI', 'ME', 'CL', 'DC', 'CM', 'MD', 'DM',
+  'MIL', 'MIX', 'DIM', 'MID', 'LID', 'VID', 'DID', 'LIL', 'CIVIL', 'MIMI',
+]);
+
+function isSafeRomanNumeral(w) {
+  if (!w || w.length < 2) return false;
+  const upper = w.toUpperCase();
+  if (ROMAN_FALSE_POSITIVES.has(upper)) return false;
+  return /^(?=[MDCLXVI])M{0,3}(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$/.test(upper);
+}
+
+/**
+ * Formats a single football or basketball club name with authoritative acronym,
+ * mixed-case sponsor/prefix, contraction, and diacritic preservation.
+ * Examples:
+ * - "CA OSASUNA" -> "CA Osasuna"
+ * - "PANATHINAIKOS AKTOR ATHENS" -> "Panathinaikos AKTOR Athens"
+ * - "CADI LA SEU" -> "Cadí La Seu"
+ * - "LDLC ASVEL VILLEURBANNE" -> "LDLC ASVEL Villeurbanne"
+ * - "INNOVA-TSN LEGANES" -> "Innova-TSN Leganés"
+ * - "VFB STUTTGART" -> "VfB Stuttgart"
+ * - "U-BT CLUJ-NAPOCA" -> "U-BT Cluj-Napoca"
+ */
+export function formatClubName(rawName) {
+  if (!rawName) return '';
+  const trimmed = String(rawName).replace(/\s+/g, ' ').trim();
+  if (!trimmed) return '';
+
+  const lowerConnectors = new Set([
+    'de', 'del', 'da', 'do', 'dos', 'das', 'i', 'y', 'en',
+    'van', 'von', 'der', 'den', 'am', 'an', 'im', 'et', 'du', 'des', 'sur', 'lès', 'les', 'aux',
+  ]);
+
+  const formatSubToken = (tok, isFirst) => {
+    if (!tok) return tok;
+    const upper = tok.toUpperCase();
+
+    if (SPECIAL_MIXED_CASE[upper]) return SPECIAL_MIXED_CASE[upper];
+    if (SPORTS_CLUB_ACRONYMS.has(upper)) return upper;
+
+    // Handle Catalan/French apostrophe contractions (e.g. L'Hospitalet, d'Ascq)
+    const apoMatch = tok.match(/^([ldLD])(['’])(.+)$/);
+    if (apoMatch) {
+      const lead = apoMatch[1].toLowerCase();
+      const prefix = (isFirst || lead === 'l' ? lead.toUpperCase() : lead) + apoMatch[2];
+      return prefix + formatSubToken(apoMatch[3], true);
+    }
+
+    const lower = tok.toLowerCase();
+    if (!isFirst && lowerConnectors.has(lower)) return lower;
+
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  };
+
+  let formatted = trimmed
+    .split(/(\s+)/)
+    .map((chunk, idx) => {
+      if (!chunk || /^\s+$/.test(chunk)) return chunk;
+
+      // Preserve whole mixed-case compound tokens (e.g. Kids&Us, Innova-TSN, U-BT, ESBVA-LM, HUN-Therm)
+      const wholeUpper = chunk.toUpperCase();
+      if (SPECIAL_MIXED_CASE[wholeUpper]) return SPECIAL_MIXED_CASE[wholeUpper];
+      if (SPORTS_CLUB_ACRONYMS.has(wholeUpper)) return wholeUpper;
+
+      // Split on hyphens/slashes/dots while keeping delimiters intact (e.g. Bourg-en-Bresse, C.A., Bodø/Glimt)
+      const parts = chunk.split(/([-–—/.,:;()]+)/);
+      return parts
+        .map((part, pIdx) => {
+          if (!part || /^[-–—/.,:;()]+$/.test(part)) return part;
+          return formatSubToken(part, idx === 0 && pIdx === 0);
+        })
+        .join('');
+    })
+    .join('');
+
+  for (const { pattern, replacement } of SPORTS_CLUB_PHRASE_FIXES) {
+    formatted = formatted.replace(pattern, replacement);
+  }
+
+  return formatted;
+}
+
+/**
+ * Formats a sports match title of the form "Team A vs Team B" using formatClubName on each side.
+ */
+export function formatSportsMatchTitle(title) {
+  if (!title) return '';
+  const match = String(title).trim().match(/^(.+?)\s+(?:vs\.?)\s+(.+)$/i);
+  if (!match) return formatClubName(title);
+  return `${formatClubName(match[1])} vs ${formatClubName(match[2])}`;
+}
+
 function toNaturalCase(str) {
   if (!str) return '';
   const trimmed = str.trim();
 
-  const ACRONYMS = new Set([
-    'BBVA', 'WTA', 'ATP', 'ACB', 'FDM', 'IVAM', 'CCCC', 'TEM', 'MUVIM', 'CAHH', 'VCF', 'LUD', 'BC', 'UD', 'CF', 'SD', 'FC', 'XXI', '3X3', 'XLVIII', '15K', 'RFEF', 'FUTFEM', 'UWCL', 'LF'
-  ]);
+  // If this looks like a "Team A vs Team B" sports fixture, delegate to the sports club formatter
+  if (/\s+vs\.?\s+/i.test(trimmed)) {
+    return formatSportsMatchTitle(trimmed);
+  }
+
   const lowerWords = new Set(['de', 'del', "d'", 'd’', 'el', 'la', 'los', 'las', 'en', 'i', 'y', 'al', 'als', 'vs', 'a', 'por', 'con']);
-  const isRoman = (w) => /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/i.test(w) && w.length >= 1;
 
   return trimmed
     .split(/(\s+|[-–—,:;./]+)/)
@@ -296,8 +589,9 @@ function toNaturalCase(str) {
       if (!w || /^\s+$/.test(w) || /^[-–—,:;./]+$/.test(w)) return w;
       const upper = w.toUpperCase();
 
-      if (ACRONYMS.has(upper) || /^\d+K$/i.test(w)) return upper;
-      if (isRoman(w) && w.length >= 2) return upper;
+      if (SPECIAL_MIXED_CASE[upper]) return SPECIAL_MIXED_CASE[upper];
+      if (GENERAL_ACRONYMS.has(upper) || /^\d+K$/i.test(w)) return upper;
+      if (isSafeRomanNumeral(w)) return upper;
 
       const lower = w.toLowerCase();
       if (idx > 0 && lowerWords.has(lower)) return lower;
@@ -2184,13 +2478,14 @@ async function scrapeValenciaBasket(page) {
         ? (/euroleague|euroliga/i.test(rawText) ? 'EuroLeague Women' : 'LF Endesa')
         : (/euroleague|euroliga/i.test(rawText) ? 'EuroLeague' : 'Liga Endesa ACB');
 
-      const fullTitle = `${valenciaTeamName} vs ${toNaturalCase(opponent)}`;
+      const formattedOpponent = formatClubName(opponent);
+      const fullTitle = `${valenciaTeamName} vs ${formattedOpponent}`;
       if (isAwayMatch(fullTitle, venueName)) continue;
 
       events.push({
         id: `vbc-${events.length + 1}-${Date.now()}`,
         title: fullTitle,
-        description: `Partido oficial de ${compName} en el ${venueName} frente al ${opponent}`,
+        description: `Partido oficial de ${compName} en el ${venueName} frente al ${formattedOpponent}`,
         category: 'esports',
         startDate: iso,
         venueName: venueName,
@@ -2291,7 +2586,8 @@ async function scrapeValenciaCF(page, context) {
         }
 
         const teamTitle = isWomen ? 'Valencia CF Femenino' : 'Valencia CF';
-        const fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
+        const formattedOpponent = formatClubName(opponent);
+        const fullTitle = `${teamTitle} vs ${formattedOpponent}`;
 
         if (isAwayMatch(fullTitle, venueName)) continue;
 
@@ -2302,7 +2598,7 @@ async function scrapeValenciaCF(page, context) {
         events.push({
           id: `vcf-${events.length + 1}-${Date.now()}`,
           title: fullTitle,
-          description: `Partido oficial de ${competition} en el ${venueName} frente al ${opponent}`,
+          description: `Partido oficial de ${competition} en el ${venueName} frente al ${formattedOpponent}`,
           category: 'esports',
           startDate: iso,
           venueName: venueName,
@@ -2431,8 +2727,8 @@ async function scrapeValenciaCFFemenino(page, context) {
       if (/copa/i.test(m.rawComp)) competition = 'Copa de la Reina';
       else if (/champions|uwcl/i.test(m.rawComp)) competition = "UEFA Women's Champions League";
 
-      const cleanOpponent = toNaturalCase(m.awayTeam.replace(/\s+Femenino\b/i, '').replace(/\s+Fem\b/i, ''));
-      const fullTitle = `Valencia CF Femenino vs ${toNaturalCase(m.awayTeam)}`;
+      const cleanOpponent = formatClubName(m.awayTeam.replace(/\s+Femenino\b/i, '').replace(/\s+Fem\b/i, ''));
+      const fullTitle = `Valencia CF Femenino vs ${formatClubName(m.awayTeam)}`;
 
       if (isAwayMatch(fullTitle, venueName)) continue;
 
@@ -2590,7 +2886,7 @@ async function scrapeLevanteUD(page, context) {
         }
 
         opponent = awayCandidate.replace(/\b(?:Buñol|Entradas|Comprar|Ver)\b/gi, '').trim();
-        fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
+        fullTitle = `${teamTitle} vs ${formatClubName(opponent)}`;
       } else {
         const candidateTitle = m.titleAttr || m.rawText;
         const matchTitle = candidateTitle.match(/Levante(?:\s+UD)?(?:\s+Femenino|\s+Fem)?\s+(?:vs\.?|x|-)\s+([A-Za-zÁ-ÿ\s]+)/i);
@@ -2601,7 +2897,7 @@ async function scrapeLevanteUD(page, context) {
             .trim();
         }
         if (!opponent) opponent = isWomen ? 'Liga F Match' : 'LaLiga Match';
-        fullTitle = `${teamTitle} vs ${toNaturalCase(opponent)}`;
+        fullTitle = `${teamTitle} vs ${formatClubName(opponent)}`;
       }
 
       if (isAwayMatch(fullTitle, venueName, detailData?.locality, m.href)) continue;
@@ -2609,7 +2905,7 @@ async function scrapeLevanteUD(page, context) {
       events.push({
         id: `lud-${events.length + 1}-${Date.now()}`,
         title: fullTitle,
-        description: `Partido oficial de ${competition} en ${venueName} frente al ${toNaturalCase(opponent)}`,
+        description: `Partido oficial de ${competition} en ${venueName} frente al ${formatClubName(opponent)}`,
         category: 'esports',
         startDate: iso,
         venueName: venueName,
@@ -2781,8 +3077,14 @@ async function main() {
       if (fix.description) description = fix.description;
     }
 
+    let title = ev.title;
+    if (ev.category === 'esports' && /\s+vs\.?\s+/i.test(title || '')) {
+      title = formatSportsMatchTitle(title);
+    }
+
     return {
       ...ev,
+      title,
       startDate,
       endDate: endDate || undefined,
       venueName,
@@ -2811,15 +3113,7 @@ async function main() {
         (e) => normalizeKey(e.title) === key || normalizeKey(e.title).includes(key)
       );
       if (!alreadyPresent) {
-        const canonicalTitle = key
-          .split(' vs ')
-          .map((part) =>
-            part
-              .split(' ')
-              .map((w) => (w.toLowerCase() === 'ud' || w.toLowerCase() === 'cf' ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
-              .join(' ')
-          )
-          .join(' vs ');
+        const canonicalTitle = formatSportsMatchTitle(key);
 
         processed.push({
           id: `verified-fixture-${key.replace(/[^a-z0-9]+/g, '-')}`,
