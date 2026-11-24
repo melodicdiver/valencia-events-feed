@@ -2937,8 +2937,9 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Ciutat Vella',
     address: 'Passeig de Russafa, 3, 46002 València',
     tier: 1,
-    url: 'https://cineslys.com/calendario/mes/',
-    secondaryUrls: ['https://cineslys.com/cartelera/'],
+    reservaEntradasSlug: 'cineslys',
+    url: 'https://www.reservaentradas.com/cine/valencia/cineslys',
+    secondaryUrls: ['https://cineslys.com/calendario/mes/'],
   },
   {
     id: 'cines-babel',
@@ -2947,7 +2948,8 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'El Pla del Real',
     address: 'C/ Vicent Sancho Tello, 10, 46021 València',
     tier: 1,
-    url: 'https://cinesbabel.com/cartelera/',
+    reservaEntradasSlug: 'cinesbabel',
+    url: 'https://www.reservaentradas.com/cine/valencia/cinesbabel',
     defaultVOSE: true,
   },
   {
@@ -2977,7 +2979,7 @@ const VALENCIA_CINEMAS = [
     address: 'Edifici Rialto, Pl. Ajuntament, 17, 46002 València',
     tier: 1,
     url: 'https://ivc.gva.es/val/audiovisual/programacio/valencia-la-filmoteca',
-    secondaryUrls: ['https://ivc.gva.es/es/audiovisual/programacio/valencia-la-filmoteca'],
+    secondaryUrls: ['https://ivc.gva.es/es/audiovisuales/programacion/valencia-la-filmoteca-cas'],
     defaultEventType: 'especial',
   },
   {
@@ -2987,7 +2989,8 @@ const VALENCIA_CINEMAS = [
     neighborhood: "L'Eixample",
     address: 'C/ Almirall Cadarso, 31, 46005 València',
     tier: 1,
-    url: 'https://www.cinestudiodor.es/',
+    reservaEntradasSlug: 'cinestudiodor',
+    url: 'https://www.reservaentradas.com/cine/valencia/cinestudiodor',
   },
   {
     id: 'autocine-star',
@@ -3005,8 +3008,11 @@ const VALENCIA_CINEMAS = [
     zone: 'valencia-ciudad',
     neighborhood: 'Ciutat Vella',
     address: 'C/ Roger de Llúria, 21, 46002 València',
-    tier: 3,
-    url: 'https://park.cinesabc.com/',
+    tier: 1,
+    reservaEntradasSlug: 'abcpark',
+    abcCinemaId: 2,
+    abcVenueSlug: 'abc-park',
+    url: 'https://www.cinesabc.com/cine/abcpark',
   },
   {
     id: 'cines-abc-el-saler',
@@ -3014,8 +3020,11 @@ const VALENCIA_CINEMAS = [
     zone: 'valencia-ciudad',
     neighborhood: 'Quatre Carreres',
     address: 'CC El Saler, Av. del Professor López Piñero, 16, 46013 València',
-    tier: 3,
-    url: 'https://elsaler.cinesabc.com/',
+    tier: 1,
+    reservaEntradasSlug: 'abcelsaler',
+    abcCinemaId: 172,
+    abcVenueSlug: 'abc-saler',
+    url: 'https://www.cinesabc.com/cine/abcelsaler',
   },
 
   // Área Metropolitana (4)
@@ -3044,8 +3053,8 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Alfafar',
     address: 'CC MN4, C/ Alcalde José Puertes, 46910 Alfafar',
     tier: 1,
-    url: 'https://cinesmn4.com/peliculas-en-cartelera',
-    secondaryUrls: ['https://cinesmn4.com/peliculas-proximamente'],
+    reservaEntradasSlug: 'cinesmn4',
+    url: 'https://www.reservaentradas.com/cine/valencia/cinesmn4',
   },
   {
     id: 'cines-abc-gran-turia',
@@ -3053,8 +3062,11 @@ const VALENCIA_CINEMAS = [
     zone: 'area-metropolitana',
     neighborhood: 'Xirivella',
     address: 'CC Gran Turia, Pl. d’Europa, s/n, 46950 Xirivella',
-    tier: 3,
-    url: 'https://granturia.cinesabc.com/',
+    tier: 1,
+    reservaEntradasSlug: 'abcgranturia',
+    abcCinemaId: 171,
+    abcVenueSlug: 'abc-gran-turia',
+    url: 'https://www.cinesabc.com/cine/abcgranturia',
   },
 ];
 
@@ -3332,12 +3344,76 @@ function parseSpanishOrIsoDate(rawStr, referenceISO) {
   return null;
 }
 
+const CINEMA_TITLE_MINOR_WORDS = new Set([
+  'a', 'al', 'con', 'de', 'del', 'e', 'el', 'en', 'la', 'las', 'lo', 'los', 'o', 'para', 'por',
+  'sin', 'sobre', 'su', 'sus', 'u', 'un', 'una', 'unas', 'unos', 'y',
+  'and', 'at', 'by', 'for', 'from', 'in', 'of', 'on', 'or', 'the', 'to', 'with',
+  'd', 'l', 'els', 'les', 'i', 'per', 'amb',
+]);
+
+const CINEMA_TITLE_UPPER_TOKENS = new Set([
+  'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII', 'XIII', 'XIV', 'XV',
+  '2D', '3D', '4DX', 'IMAX', 'VOSE', 'VIP', 'FBI', 'CIA', 'USA', 'UK', 'AI', 'DNA',
+  'TV', 'DJ', 'DC', 'MCU', 'BTS', 'UFC', 'WWE', 'NASA', 'NY', 'LA', 'SF', 'SOS', 'S.O.S.',
+]);
+
+function formatCinemaMovieTitle(rawTitle) {
+  const cleaned = decodeHtmlEntitiesCinema(rawTitle || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  const letters = cleaned.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  if (letters.length < 3) return cleaned;
+  const upperCount = (letters.match(/[A-ZÀ-ÖØ-Þ]/g) || []).length;
+  // Only re-case titles that arrive in ALL-CAPS (>= 85% uppercase letters)
+  if (upperCount / letters.length < 0.85) return cleaned;
+
+  const tokens = cleaned.split(/(\s+)/);
+  let forceCapNext = true;
+  return tokens
+    .map((tok) => {
+      if (/^\s+$/.test(tok)) return tok;
+      const stripped = tok.replace(/^[¡¿"'«(\[]+|[!?.,:;"'»)\]]+$/g, '');
+      const upperStripped = stripped.toUpperCase();
+      const endsBreak = /[:.!?—–-]$/.test(tok);
+
+      if (CINEMA_TITLE_UPPER_TOKENS.has(upperStripped)) {
+        forceCapNext = endsBreak;
+        return tok.replace(stripped, upperStripped);
+      }
+
+      const lowerWord = stripped.toLowerCase();
+      let formattedWord;
+      if (!forceCapNext && CINEMA_TITLE_MINOR_WORDS.has(lowerWord)) {
+        formattedWord = lowerWord;
+      } else {
+        formattedWord = lowerWord.charAt(0).toUpperCase() + lowerWord.slice(1);
+      }
+      forceCapNext = endsBreak;
+      return stripped ? tok.replace(stripped, formattedWord) : tok;
+    })
+    .join('');
+}
+
+function isHotlinkProneCinemaPoster(url) {
+  if (!url) return false;
+  return /cineslys\.com\/wp-content\/uploads\//i.test(String(url));
+}
+
+function pickPreferredCinemaPoster(posterA, posterB) {
+  if (!posterA) return posterB || null;
+  if (!posterB) return posterA || null;
+  const aHotlink = isHotlinkProneCinemaPoster(posterA);
+  const bHotlink = isHotlinkProneCinemaPoster(posterB);
+  if (aHotlink && !bHotlink) return posterB;
+  if (bHotlink && !aHotlink) return posterA;
+  return posterA;
+}
+
 function buildCinemaEventRecord(cinema, raw, todayISO, updatedAtISO) {
   const { isVOSE, format, language, subtitles, cleanedTitle } = extractCinemaFormatAndVose(
     raw.title,
     Boolean(cinema.defaultVOSE)
   );
-  const title = cleanedTitle;
+  const title = formatCinemaMovieTitle(cleanedTitle);
   if (!title || title.length < 2) return null;
 
   const date = parseSpanishOrIsoDate(raw.date, todayISO) || todayISO;
@@ -3454,8 +3530,8 @@ function groupAndDeduplicateCinemaEvents(events) {
           prev.synopsis && prev.synopsis.length >= (ev.synopsis?.length || 0)
             ? prev.synopsis
             : ev.synopsis || prev.synopsis || null,
-        posterUrl: prev.posterUrl || ev.posterUrl || null,
-        imageUrl: prev.posterUrl || ev.posterUrl || prev.imageUrl || ev.imageUrl || undefined,
+        posterUrl: pickPreferredCinemaPoster(prev.posterUrl, ev.posterUrl),
+        imageUrl: pickPreferredCinemaPoster(prev.posterUrl || prev.imageUrl, ev.posterUrl || ev.imageUrl) || undefined,
         cycleName: prev.cycleName || ev.cycleName || null,
         hasVOSE: Boolean(prev.hasVOSE || ev.hasVOSE || mergedSessions.some((s) => s.isVOSE)),
         sessions: mergedSessions,
@@ -3478,7 +3554,7 @@ function propagateCrossVenueCinemaMetadata(events) {
     if (!filmKey) continue;
     const prev = metaByFilm.get(filmKey) || {};
     metaByFilm.set(filmKey, {
-      posterUrl: prev.posterUrl || ev.posterUrl || null,
+      posterUrl: pickPreferredCinemaPoster(prev.posterUrl, ev.posterUrl),
       director: prev.director || ev.director || null,
       durationMinutes: prev.durationMinutes || ev.durationMinutes || null,
       ageRating: prev.ageRating || ev.ageRating || null,
@@ -3494,7 +3570,7 @@ function propagateCrossVenueCinemaMetadata(events) {
     const filmKey = normalizeCinemaSlug(ev.title);
     const shared = metaByFilm.get(filmKey);
     if (!shared) return ev;
-    const posterUrl = ev.posterUrl || shared.posterUrl || null;
+    const posterUrl = pickPreferredCinemaPoster(ev.posterUrl, shared.posterUrl);
     const synopsis = ev.synopsis || shared.synopsis || null;
     return {
       ...ev,
@@ -3510,7 +3586,7 @@ function propagateCrossVenueCinemaMetadata(events) {
   });
 }
 
-async function fetchCinemaHtml(url, timeoutMs = 15000) {
+async function fetchCinemaPage(url, timeoutMs = 15000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -3524,10 +3600,15 @@ async function fetchCinemaHtml(url, timeoutMs = 15000) {
       redirect: 'follow',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+    return { html: await res.text(), finalUrl: res.url || url };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchCinemaHtml(url, timeoutMs = 15000) {
+  const { html } = await fetchCinemaPage(url, timeoutMs);
+  return html;
 }
 
 /**
@@ -3574,12 +3655,22 @@ function extractJsonLdCinemaEntries(html, cinema, todayISO) {
             : work.director?.name || null;
 
         if (date && timeM) {
+          let resolvedTime = timeM[1];
+          // Skip bogus 00:00 placeholder times from WordPress The Events Calendar all-day items;
+          // attempt to find a real showtime inside the description first
+          if (resolvedTime === '00:00') {
+            const descTimeM = /\b(1\d|2[0-3]):([0-5]\d)\b/.exec(
+              `${work.description || ''} ${node.description || ''} ${node.name || ''}`
+            );
+            if (!descTimeM) continue;
+            resolvedTime = `${descTimeM[1]}:${descTimeM[2]}`;
+          }
           results.push({
             title,
             date,
             sessions: [
               {
-                time: timeM[1],
+                time: resolvedTime,
                 isVOSE: /vose|v\.o\.s|subtitul/i.test(`${node.videoFormat || ''} ${node.inLanguage || ''} ${node.name || ''}`) || Boolean(cinema.defaultVOSE),
                 format: node.videoFormat || null,
                 ticketUrl: node.offers?.url || node.url || null,
@@ -3603,6 +3694,7 @@ function extractJsonLdCinemaEntries(html, cinema, todayISO) {
  * Generic HTML card/article extractor (uses cheerio when available, regex fallback otherwise).
  */
 async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
+  const baseUrl = options.baseUrl || cinema.url;
   const entries = [...extractJsonLdCinemaEntries(html, cinema, todayISO)];
   const $ = await getOptionalCheerio().then((ch) => (ch ? ch.load(html) : null));
   const timeRegex = /\b([01]?\d|2[0-3]):([0-5]\d)\b/g;
@@ -3639,7 +3731,8 @@ async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
       let tm;
       timeRegex.lastIndex = 0;
       while ((tm = timeRegex.exec(blockText)) !== null) {
-        times.push(`${tm[1].padStart(2, '0')}:${tm[2]}`);
+        const hhmm = `${tm[1].padStart(2, '0')}:${tm[2]}`;
+        if (hhmm !== '00:00') times.push(hhmm);
       }
       if (times.length === 0) return;
 
@@ -3652,12 +3745,18 @@ async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
       const date = parseSpanishOrIsoDate(dateAttr, todayISO) || todayISO;
 
       const imgEl = $el.find('img').first();
-      const posterUrl =
+      const rawPoster =
+        imgEl.attr('data-original') ||
         imgEl.attr('data-src') ||
         imgEl.attr('data-lazy-src') ||
         imgEl.attr('src') ||
         null;
-      const linkHref = $el.find('a[href]').first().attr('href') || cinema.url;
+      const posterUrl = resolveAbsoluteCinemaUrl(rawPoster, baseUrl);
+      const buyHref =
+        $el.find('a[href*="entrada"], a[href*="ticket"], a[href*="enterticket"], a[href*="reservaentradas"], a[href*="compra"], a[href*="sesiones"]').first().attr('href') ||
+        $el.find('a[href]').first().attr('href') ||
+        baseUrl;
+      const resolvedLink = resolveAbsoluteCinemaUrl(buyHref, baseUrl) || cinema.url;
 
       const directorM = /(?:Direcci[oó]n|Director(?:a)?|Dir\.?)\s*[:\-]\s*([^|\n·•]{2,60})/i.exec(blockText);
       const cycleText = $el.find('.ciclo, .cicle, .cycle, .categoria, .category, .tag').first().text();
@@ -3670,7 +3769,7 @@ async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
           time: t,
           isVOSE: meta.isVOSE,
           format: meta.format,
-          ticketUrl: resolveAbsoluteCinemaUrl(linkHref, cinema.url),
+          ticketUrl: resolvedLink,
         })),
         director: directorM ? directorM[1].trim() : null,
         durationMinutes: parseDurationMinutes(blockText),
@@ -3678,7 +3777,7 @@ async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
         synopsis: decodeHtmlEntitiesCinema($el.find('p, .sinopsis, .synopsis, .description').first().text() || ''),
         posterUrl,
         cycleName: decodeHtmlEntitiesCinema(cycleText || '') || null,
-        sourceUrl: resolveAbsoluteCinemaUrl(linkHref, cinema.url) || cinema.url,
+        sourceUrl: resolvedLink,
         extraText: blockText.slice(0, 300),
       });
     });
@@ -3697,14 +3796,17 @@ async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
       let tm;
       timeRegex.lastIndex = 0;
       while ((tm = timeRegex.exec(text)) !== null) {
-        times.push(`${tm[1].padStart(2, '0')}:${tm[2]}`);
+        const hhmm = `${tm[1].padStart(2, '0')}:${tm[2]}`;
+        if (hhmm !== '00:00') times.push(hhmm);
       }
       if (times.length === 0) continue;
 
-      const imgM = /<img[^>]+(?:data-src|src)=["']([^"']+)["']/i.exec(snippet);
-      const hrefM = /<a[^>]+href=["']([^"']+)["']/i.exec(snippet);
+      const imgM = /<img[^>]+(?:data-original|data-src|data-lazy-src|src)=["']([^"']+)["']/i.exec(snippet);
+      const ticketHrefM = /<a[^>]+href=["']([^"']*(?:entrada|ticket|enterticket|reservaentradas|compra|sesiones)[^"']*)["']/i.exec(snippet);
+      const hrefM = ticketHrefM || /<a[^>]+href=["']([^"']+)["']/i.exec(snippet);
       const date = parseSpanishOrIsoDate(text, todayISO) || todayISO;
       const meta = extractCinemaFormatAndVose(text, Boolean(cinema.defaultVOSE));
+      const resolvedLink = hrefM ? resolveAbsoluteCinemaUrl(hrefM[1], baseUrl) : cinema.url;
 
       entries.push({
         title,
@@ -3713,17 +3815,279 @@ async function extractHtmlCinemaCards(html, cinema, todayISO, options = {}) {
           time: t,
           isVOSE: meta.isVOSE,
           format: meta.format,
-          ticketUrl: hrefM ? resolveAbsoluteCinemaUrl(hrefM[1], cinema.url) : null,
+          ticketUrl: resolvedLink,
         })),
         durationMinutes: parseDurationMinutes(text),
         ageRating: normalizeAgeRating(text),
-        posterUrl: imgM ? imgM[1] : null,
-        sourceUrl: hrefM ? resolveAbsoluteCinemaUrl(hrefM[1], cinema.url) : cinema.url,
+        posterUrl: imgM ? resolveAbsoluteCinemaUrl(imgM[1], baseUrl) : null,
+        sourceUrl: resolvedLink,
         extraText: text.slice(0, 300),
       });
     }
   }
 
+  return entries;
+}
+
+/**
+ * Builds the official per-movie ticket/schedule page URL for ReservaEntradas venues.
+ * For Cines ABC (Park=2, El Saler=172, Gran Turia=171), builds the exact official deep link:
+ *   https://www.cinesabc.com/e/abc-gran-turia/ruega-por-nosotras/171/3532
+ */
+function buildReservaEntradasMovieTicketUrl(cinema, sesionesUrl, movieSlug, movieId) {
+  if (cinema.abcCinemaId && cinema.abcVenueSlug && movieSlug && movieId) {
+    return `https://www.cinesabc.com/e/${cinema.abcVenueSlug}/${movieSlug}/${cinema.abcCinemaId}/${movieId}`;
+  }
+  return sesionesUrl || cinema.url;
+}
+
+function parseReservaEntradasAnalyticsJson(html) {
+  const m = /reAnalyticsSesiones\s*=\s*(\{[\s\S]*?\})\s*;/.exec(html);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dedicated scraper for all 7 ReservaEntradas-backed Valencia cinemas:
+ * Cines ABC Park, Cines ABC El Saler, Cines ABC Gran Turia,
+ * Cines Lys, Cines Babel, Cines MN4, and Cinestudio d'Or.
+ * Extracts high-res non-hotlinked posters, 7-day showtimes, VOSE/format flags,
+ * durations, age ratings, synopses, and direct per-movie / per-session ticket URLs.
+ */
+async function scrapeReservaEntradasCinemaVenue(cinema, todayISO, updatedAtISO) {
+  const slug = cinema.reservaEntradasSlug;
+  const listUrl = `https://www.reservaentradas.com/cine/valencia/${slug}`;
+  const { html: listHtml } = await fetchCinemaPage(listUrl, 15000);
+  const rows = listHtml.split('<div class="movie row"').slice(1);
+  if (rows.length === 0) return [];
+
+  const movies = [];
+  for (const row of rows) {
+    const sesLinkM = /href=["'](https?:\/\/www\.reservaentradas\.com\/sesiones\/([^/"']+)\/([^/"']+)\/([^/"']+)\/(\d+)\/?)["']/i.exec(row);
+    if (!sesLinkM) continue;
+    const sesionesUrl = sesLinkM[1];
+    const citySlug = sesLinkM[2];
+    const reSlug = sesLinkM[3];
+    const movieSlug = sesLinkM[4];
+    const movieId = sesLinkM[5];
+
+    const titleAnchorM = /<div[^>]*title-movie-list[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i.exec(row);
+    const altTitleM = /alt=["']Caratula\s+([^"']+)["']/i.exec(row);
+    const rawTitle = stripHtmlTagsCinema(titleAnchorM ? titleAnchorM[1] : altTitleM ? altTitleM[1] : '');
+    if (!rawTitle || rawTitle.length < 2) continue;
+
+    const posterM = /data-original=["']([^"']+)["']/i.exec(row) || /<img[^>]+caratula[^>]+src=["']([^"']+)["']/i.exec(row);
+    const posterUrl = posterM ? resolveAbsoluteCinemaUrl(posterM[1], listUrl) : null;
+
+    const durM = /(\d{2,3})\s*min\./i.exec(row);
+    const ageTitleM = /title=["']([^"']*(?:menores|p[uú]blicos|pendiente)[^"']*)["']/i.exec(row);
+    const sinopsisM = /sinopsis\(\s*'((?:\\'|[^'])*)'\s*,/i.exec(row);
+    const synopsis = sinopsisM
+      ? decodeHtmlEntitiesCinema(sinopsisM[1].replace(/\\'/g, "'").replace(/\\n/g, ' '))
+      : null;
+
+    const movieTicketPageUrl = buildReservaEntradasMovieTicketUrl(cinema, sesionesUrl, movieSlug, movieId);
+
+    // Fallback today sessions already embedded in the listing row
+    const inlineSessions = [];
+    const entradaRegex = /<a[^>]+href=["'](https?:\/\/www\.reservaentradas\.com\/entrada\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let em;
+    while ((em = entradaRegex.exec(row)) !== null) {
+      const timeM = /\b([012]\d:[0-5]\d)\b/.exec(stripHtmlTagsCinema(em[2]));
+      if (timeM) {
+        inlineSessions.push({
+          date: todayISO,
+          time: timeM[1],
+          isVOSE: Boolean(cinema.defaultVOSE) || /v\.?o\.?s\.?e/i.test(row),
+          format: null,
+          hall: null,
+          ticketUrl: cinema.abcCinemaId ? movieTicketPageUrl : em[1],
+        });
+      }
+    }
+
+    movies.push({
+      rawTitle,
+      posterUrl,
+      durationMinutes: durM ? parseInt(durM[1], 10) : null,
+      ageRating: ageTitleM ? normalizeAgeRating(ageTitleM[1]) : null,
+      synopsis,
+      sesionesUrl,
+      citySlug,
+      reSlug,
+      movieSlug,
+      movieId,
+      movieTicketPageUrl,
+      inlineSessions,
+    });
+  }
+
+  // Fetch each movie's /sesiones/ page in small parallel batches (6 at a time) for full 7-day schedules
+  const rawEntries = [];
+  const batchSize = 6;
+  for (let i = 0; i < movies.length; i += batchSize) {
+    const batch = movies.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (movie) => {
+        const sessionsByDate = new Map();
+        const addSess = (dateStr, sessObj) => {
+          if (!dateStr) return;
+          if (!sessionsByDate.has(dateStr)) sessionsByDate.set(dateStr, []);
+          sessionsByDate.get(dateStr).push(sessObj);
+        };
+
+        try {
+          const { html: detailHtml } = await fetchCinemaPage(movie.sesionesUrl, 10000);
+          const analyticsMap = parseReservaEntradasAnalyticsJson(detailHtml);
+          if (analyticsMap && typeof analyticsMap === 'object') {
+            for (const [sessionId, info] of Object.entries(analyticsMap)) {
+              if (!info || !info.session_datetime) continue;
+              const dtM = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(String(info.session_datetime));
+              if (!dtM) continue;
+              const dateStr = dtM[1];
+              const timeStr = dtM[2];
+              const cat4 = String(info.item_category4 || '');
+              const meta = extractCinemaFormatAndVose(
+                `${info.item_name || movie.rawTitle} ${cat4}`,
+                Boolean(cinema.defaultVOSE)
+              );
+              const directSessionTicketUrl = cinema.abcCinemaId
+                ? movie.movieTicketPageUrl
+                : `https://www.reservaentradas.com/entrada/${movie.citySlug}/${movie.reSlug}/${movie.movieSlug}/${sessionId}/?step=2`;
+
+              addSess(dateStr, {
+                time: timeStr,
+                isVOSE: meta.isVOSE,
+                format: meta.format,
+                hall: info.item_category5 || null,
+                ticketUrl: directSessionTicketUrl,
+              });
+            }
+          }
+        } catch {
+          // Fall back to inline sessions from listing page if detail page timed out
+        }
+
+        if (sessionsByDate.size === 0 && movie.inlineSessions.length > 0) {
+          for (const s of movie.inlineSessions) {
+            addSess(s.date, {
+              time: s.time,
+              isVOSE: s.isVOSE,
+              format: s.format,
+              hall: s.hall,
+              ticketUrl: s.ticketUrl,
+            });
+          }
+        }
+
+        const out = [];
+        for (const [dateStr, sessList] of sessionsByDate.entries()) {
+          out.push({
+            title: movie.rawTitle,
+            date: dateStr,
+            sessions: sessList,
+            durationMinutes: movie.durationMinutes,
+            ageRating: movie.ageRating,
+            synopsis: movie.synopsis,
+            posterUrl: movie.posterUrl,
+            sourceUrl: movie.movieTicketPageUrl,
+            ticketUrl: movie.movieTicketPageUrl,
+          });
+        }
+        return out;
+      })
+    );
+
+    for (const r of batchResults) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        rawEntries.push(...r.value);
+      }
+    }
+  }
+
+  return rawEntries
+    .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
+    .filter(Boolean);
+}
+
+/**
+ * Dedicated parser for Autocine STAR (https://www.autocinestar.com/new/)
+ * Properly resolves relative media/cartelera/ poster URLs, extracts Enterticket buy links,
+ * and splits multi-day date ranges ("27 y 28 de Noviembre") into individual screening dates.
+ */
+function parseAutocineStarHtml(html, finalUrl, cinema, todayISO) {
+  const entries = [];
+  const articles = html.match(/<article[^>]*pelicula-card[^>]*>[\s\S]*?<\/article>/gi) || [];
+  const refYear = parseInt(todayISO.slice(0, 4), 10);
+  const refMonth = parseInt(todayISO.slice(5, 7), 10);
+
+  for (const art of articles) {
+    const imgM = /<img[^>]+src=["']([^"']+)["']/i.exec(art);
+    const posterUrl = imgM ? resolveAbsoluteCinemaUrl(imgM[1], finalUrl) : null;
+
+    const ticketM = /<a[^>]+href=["'](https?:\/\/[^"']*enterticket\.es[^"']*)["']/i.exec(art);
+    const ticketUrl = ticketM ? ticketM[1] : finalUrl;
+
+    const titleMatches = [...art.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)]
+      .map((m) => stripHtmlTagsCinema(m[1]))
+      .filter((t) => t.length >= 2);
+    const isDouble = /pelicula-card--doble|sesi[oó]n\s+doble/i.test(art);
+    let title = titleMatches[0] || '';
+    if (!title) {
+      const altM = /alt=["']P[oó]ster\s+de\s+([^"']+)["']/i.exec(art);
+      title = altM ? decodeHtmlEntitiesCinema(altM[1]) : '';
+    }
+    if (!title) continue;
+    if (isDouble && !/^sesi[oó]n\s+doble/i.test(title)) {
+      title = titleMatches.length >= 2 ? `Sesión doble: ${titleMatches[0]} + ${titleMatches[1]}` : `Sesión doble: ${title}`;
+    }
+
+    const text = stripHtmlTagsCinema(art);
+    const times = [...new Set((text.match(/\b(?:1\d|2[0-3]):[0-5]\d\b/g) || []))];
+    if (times.length === 0) times.push('21:15');
+
+    // Parse dates like "27 y 28 de Noviembre" or "4, 5 y 6 de Diciembre"
+    const dates = [];
+    const multiDateM = /((?:\d{1,2}\s*(?:,|y|al|-)\s*)*\d{1,2})\s+de\s+([a-zçà-ú]{3,12})(?:\s+(?:de\s+)?(\d{4}))?/i.exec(text);
+    if (multiDateM) {
+      const days = (multiDateM[1].match(/\d{1,2}/g) || []).map((d) => parseInt(d, 10)).filter((d) => d >= 1 && d <= 31);
+      const monKey = multiDateM[2].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').slice(0, 3);
+      const mon = MONTH_MAP[multiDateM[2].toLowerCase()] || MONTH_MAP[monKey];
+      if (mon && days.length > 0) {
+        let yr = multiDateM[3] ? parseInt(multiDateM[3], 10) : refYear;
+        if (!multiDateM[3] && mon < refMonth - 2) yr += 1;
+        for (const d of days) {
+          dates.push(`${yr}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+        }
+      }
+    }
+    if (dates.length === 0) {
+      const fallbackDate = parseSpanishOrIsoDate(text, todayISO);
+      if (fallbackDate) dates.push(fallbackDate);
+    }
+
+    for (const d of dates) {
+      entries.push({
+        title,
+        date: d,
+        eventType: 'especial',
+        sessions: times.map((t) => ({
+          time: t,
+          isVOSE: false,
+          format: null,
+          ticketUrl,
+        })),
+        posterUrl,
+        sourceUrl: ticketUrl,
+        ticketUrl,
+        extraText: text.slice(0, 300),
+      });
+    }
+  }
   return entries;
 }
 
@@ -3812,7 +4176,22 @@ function extractCinemaEntriesFromApiJson(payload, cinema, todayISO, options = {}
       synopsis: typeof rawSynopsis === 'string' ? rawSynopsis : context.synopsis,
       ageRating: typeof rawRating === 'string' ? rawRating : context.ageRating,
       date: parseSpanishOrIsoDate(rawDate, todayISO) || context.date,
-      sourceUrl: node.Url || node.url || node.TicketUrl || node.ticketUrl || context.sourceUrl,
+      sourceUrl:
+        node.DetailUrl ||
+        node.detailUrl ||
+        node.MovieUrl ||
+        node.movieUrl ||
+        node.FilmUrl ||
+        node.filmUrl ||
+        node.BuyUrl ||
+        node.buyUrl ||
+        node.BookingUrl ||
+        node.bookingUrl ||
+        node.TicketUrl ||
+        node.ticketUrl ||
+        node.Url ||
+        node.url ||
+        context.sourceUrl,
       extraText: `${node.Format || ''} ${node.Version || ''} ${node.Language || ''} ${node.Attributes || ''} ${Array.isArray(node.AttributeIds) ? node.AttributeIds.join(' ') : ''}`,
     };
 
@@ -3842,6 +4221,17 @@ function extractCinemaEntriesFromApiJson(payload, cinema, todayISO, options = {}
           `${nextCtx.title} ${nextCtx.extraText} ${node.Subtitles || ''} ${node.ScreenName || ''}`,
           forceVOSE
         );
+        const sessionTicketUrl =
+          node.BookingUrl ||
+          node.bookingUrl ||
+          node.BuyUrl ||
+          node.buyUrl ||
+          node.TicketUrl ||
+          node.ticketUrl ||
+          node.SessionUrl ||
+          node.sessionUrl ||
+          nextCtx.sourceUrl ||
+          null;
 
         entries.push({
           title: nextCtx.title,
@@ -3852,7 +4242,7 @@ function extractCinemaEntriesFromApiJson(payload, cinema, todayISO, options = {}
               isVOSE: forceVOSE || meta.isVOSE,
               format: meta.format,
               hall: node.ScreenName || node.Hall || node.sala || null,
-              ticketUrl: node.BookingUrl || node.TicketUrl || node.ticketUrl || nextCtx.sourceUrl || null,
+              ticketUrl: sessionTicketUrl,
             },
           ],
           director: nextCtx.director,
@@ -3860,7 +4250,7 @@ function extractCinemaEntriesFromApiJson(payload, cinema, todayISO, options = {}
           ageRating: nextCtx.ageRating,
           synopsis: nextCtx.synopsis,
           posterUrl: nextCtx.posterUrl,
-          sourceUrl: nextCtx.sourceUrl || cinema.url,
+          sourceUrl: nextCtx.sourceUrl || sessionTicketUrl || cinema.url,
           extraText: nextCtx.extraText,
         });
       }
@@ -3878,19 +4268,53 @@ function extractCinemaEntriesFromApiJson(payload, cinema, todayISO, options = {}
 }
 
 /**
- * Tier 1 Scraper (6 lightweight HTTP GET venues):
- * Cines Lys, Cines Babel, La Filmoteca (IVC), Cinestudio d'Or, Autocine STAR, Cines MN4
+ * Tier 1 Scraper (9 lightweight HTTP GET venues):
+ * - 7 ReservaEntradas venues: Cines ABC Park, ABC El Saler, ABC Gran Turia,
+ *   Cines Lys, Cines Babel, Cines MN4, Cinestudio d'Or
+ * - Autocine STAR (dedicated HTML parser with redirected /new/ base URL)
+ * - La Filmoteca (IVC)
  */
 async function scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO) {
-  const urlsToFetch = [cinema.url, ...(cinema.secondaryUrls || [])];
-  const rawEntries = [];
+  const results = [];
 
+  // 1. ReservaEntradas primary pipeline (7 Valencia cinemas)
+  if (cinema.reservaEntradasSlug) {
+    try {
+      const reRecords = await scrapeReservaEntradasCinemaVenue(cinema, todayISO, updatedAtISO);
+      results.push(...reRecords);
+    } catch (err) {
+      console.warn(`[Cine ReservaEntradas] ${cinema.id}: ${err.message}`);
+    }
+  }
+
+  // 2. Autocine STAR dedicated HTML pipeline
+  if (cinema.id === 'autocine-star') {
+    try {
+      const { html, finalUrl } = await fetchCinemaPage(cinema.url, 15000);
+      const parsed = parseAutocineStarHtml(html, finalUrl, cinema, todayISO);
+      const built = parsed
+        .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
+        .filter(Boolean);
+      results.push(...built);
+      return results;
+    } catch (err) {
+      console.warn(`[Cine Autocine] ${cinema.id}: ${err.message}`);
+      return results;
+    }
+  }
+
+  // 3. Secondary / HTML URLs (e.g. Cines Lys special cycles calendar, La Filmoteca IVC)
+  const urlsToFetch = cinema.reservaEntradasSlug
+    ? cinema.secondaryUrls || []
+    : [cinema.url, ...(cinema.secondaryUrls || [])];
+
+  const rawEntries = [];
   for (const targetUrl of urlsToFetch) {
     try {
-      const html = await fetchCinemaHtml(targetUrl, 15000);
-      const extracted = await extractHtmlCinemaCards(html, cinema, todayISO);
+      const { html, finalUrl } = await fetchCinemaPage(targetUrl, 15000);
+      const extracted = await extractHtmlCinemaCards(html, cinema, todayISO, { baseUrl: finalUrl });
       for (const item of extracted) {
-        if (targetUrl.includes('proximamente')) {
+        if (targetUrl.includes('proximamente') || targetUrl.includes('calendario')) {
           item.eventType = 'especial';
         }
         rawEntries.push(item);
@@ -3900,9 +4324,12 @@ async function scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO) {
     }
   }
 
-  return rawEntries
-    .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
-    .filter(Boolean);
+  results.push(
+    ...rawEntries
+      .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
+      .filter(Boolean)
+  );
+  return results;
 }
 
 /**
@@ -4012,7 +4439,7 @@ function loadPreviousCinemaCacheByVenue(outPath, todayISO) {
 }
 
 async function runCinemaVenueIsolated(cinema, scraperPromiseFn, previousCacheByVenue) {
-  const timeoutMs = cinema.tier === 1 ? 18000 : 28000;
+  const timeoutMs = cinema.reservaEntradasSlug ? 45000 : cinema.tier === 1 ? 20000 : 30000;
   try {
     const result = await Promise.race([
       scraperPromiseFn(),
@@ -4198,7 +4625,31 @@ function runCinemaSelfTests() {
   );
   assert(babelEnriched.director === 'Pedro Almodóvar', 'Cross-venue metadata propagated director');
 
-  console.log('ALL CINEMA SCRAPER SELF-TESTS PASSED (14/14 assertions)');
+  // 5. Verify Cines ABC deep-link URL generation & ALL-CAPS title normalization
+  const abcGranTuria = VALENCIA_CINEMAS.find((v) => v.id === 'cines-abc-gran-turia');
+  const abcDeepLink = buildReservaEntradasMovieTicketUrl(
+    abcGranTuria,
+    'https://www.reservaentradas.com/sesiones/valencia/abcgranturia/ruega-por-nosotras/3532/',
+    'ruega-por-nosotras',
+    '3532'
+  );
+  assert(
+    abcDeepLink === 'https://www.cinesabc.com/e/abc-gran-turia/ruega-por-nosotras/171/3532',
+    `Unexpected ABC Gran Turia deep link: ${abcDeepLink}`
+  );
+  assert(
+    formatCinemaMovieTitle('RUEGA POR NOSOTRAS') === 'Ruega por Nosotras',
+    `Title normalization failed: ${formatCinemaMovieTitle('RUEGA POR NOSOTRAS')}`
+  );
+  assert(
+    pickPreferredCinemaPoster(
+      'https://cineslys.com/wp-content/uploads/2026/11/RRSS-2.jpg',
+      'https://cineslys.reservaentradas.com/cineslys/obj/LCinesD_dat/eventos/JPg0047p.jpg'
+    ) === 'https://cineslys.reservaentradas.com/cineslys/obj/LCinesD_dat/eventos/JPg0047p.jpg',
+    'Preferred non-hotlinked ReservaEntradas poster over WordPress upload'
+  );
+
+  console.log('ALL CINEMA SCRAPER SELF-TESTS PASSED (17/17 assertions)');
 }
 
 async function main() {
