@@ -29,6 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm init -y
+          npm pkg set type=module
           npm install playwright
 
       - name: Install Playwright Chromium
