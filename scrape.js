@@ -2959,6 +2959,7 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Campanar',
     address: 'Av. Tirso de Molina, 16, 46015 València',
     tier: 2,
+    sensaCineTheaterId: 'E0773',
     url: 'https://yelmocines.es/cartelera/valencia',
     voseUrl: 'https://yelmocines.es/cartelera-vo/valencia',
   },
@@ -2969,6 +2970,7 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Camins al Grau',
     address: 'CC Aqua, C/ Menorca, 19, 46023 València',
     tier: 2,
+    sensaCineTheaterId: 'E0474',
     url: 'https://ocinepremiumaqua.es/',
   },
   {
@@ -2978,8 +2980,8 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Ciutat Vella',
     address: 'Edifici Rialto, Pl. Ajuntament, 17, 46002 València',
     tier: 1,
-    url: 'https://ivc.gva.es/val/audiovisual/programacio/valencia-la-filmoteca',
-    secondaryUrls: ['https://ivc.gva.es/es/audiovisuales/programacion/valencia-la-filmoteca-cas'],
+    url: 'https://ivc.gva.es/es/audiovisuales/programacion/valencia-la-filmoteca-cas',
+    secondaryUrls: ['https://ivc.gva.es/val/audiovisual/programacio/valencia-la-filmoteca'],
     defaultEventType: 'especial',
   },
   {
@@ -3035,6 +3037,7 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Paterna',
     address: 'Heron City, Av. de Francisco Tomás y Valiente, s/n, 46980 Paterna',
     tier: 2,
+    sensaCineTheaterId: 'E0454',
     url: 'https://kinepolis.es/cines/kinepolis-valencia/informacion/',
   },
   {
@@ -3044,6 +3047,7 @@ const VALENCIA_CINEMAS = [
     neighborhood: 'Aldaia',
     address: 'CC Bonaire, A-3 Km 345, 46960 Aldaia',
     tier: 2,
+    sensaCineTheaterId: 'E0405',
     url: 'https://www.cinesa.es/cines/bonaire/',
   },
   {
@@ -4092,6 +4096,384 @@ function parseAutocineStarHtml(html, finalUrl, cinema, todayISO) {
 }
 
 /**
+ * Smart-cases ALL-CAPS Spanish/Valencian cinema titles (e.g. "LOS GIRASOLES CIEGOS" -> "Los girasoles ciegos")
+ * while preserving Roman numerals and short acronyms.
+ */
+function normalizeAllCapsCinemaLabel(raw) {
+  const clean = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  const letters = clean.replace(/[^A-Za-zÁÉÍÓÚÜÑÀÈÌÒÙÇáéíóúüñàèìòùç]/g, '');
+  if (!letters || letters !== letters.toUpperCase()) return clean;
+  const keepUpper = new Set(['II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX', 'XI', 'XII', 'USA', 'EEUU', 'TV', 'ADN', 'IVC', 'SEMINCI', '3D', 'DCP']);
+  const lowerWords = clean.toLowerCase().split(' ');
+  return lowerWords
+    .map((word, idx) => {
+      const stripped = word.replace(/^[^a-záéíóúüñàèìòùç0-9]+|[^a-záéíóúüñàèìòùç0-9]+$/gi, '').toUpperCase();
+      if (keepUpper.has(stripped)) return word.toUpperCase();
+      if (idx === 0) return word.charAt(0).toUpperCase() + word.slice(1);
+      return word;
+    })
+    .join(' ');
+}
+
+/**
+ * Dedicated parser for La Filmoteca (IVC) official programming pages:
+ * https://ivc.gva.es/es/audiovisuales/programacion/valencia-la-filmoteca-cas
+ * Parses <div class="actividad ..."> blocks including exact ISO ticket dates, showtimes,
+ * directors, runtime, VOS/VOSE flags, archival formats (35mm/16mm/DCP), cycles, and posters.
+ */
+function parseLaFilmotecaHtml(html, finalUrl, cinema, todayISO) {
+  const entries = [];
+  const blocks = String(html || '').split(/<div\s+class=["']actividad\b[^>]*>/i).slice(1);
+  const refYear = parseInt(todayISO.slice(0, 4), 10);
+  const refMonth = parseInt(todayISO.slice(5, 7), 10);
+
+  for (const block of blocks) {
+    // 1. Extract date & time
+    const diaM = /<span[^>]*class=["']dia["'][^>]*>([\s\S]*?)<\/span>/i.exec(block);
+    const mesM = /<span[^>]*class=["']mes["'][^>]*>([\s\S]*?)<\/span>/i.exec(block);
+    const horaM = /<span[^>]*class=["']hora["'][^>]*>([\s\S]*?)<\/span>/i.exec(block);
+    const buyM = /<a[^>]*class=["'][^"']*btn-venta-entradas[^"']*["'][^>]*href=["']([^"']+)["']/i.exec(block) ||
+                 /<a[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*btn-venta-entradas[^"']*["']/i.exec(block);
+
+    const buyUrl = buyM ? resolveAbsoluteCinemaUrl(decodeHtmlEntitiesCinema(buyM[1]), finalUrl) : null;
+
+    let dateStr = null;
+    if (buyUrl) {
+      const isoInUrl = /\/(\d{4}-\d{2}-\d{2})(?:[/?#]|$)/.exec(buyUrl);
+      if (isoInUrl) dateStr = isoInUrl[1];
+    }
+    if (!dateStr && diaM && mesM) {
+      const dayNum = parseInt(stripHtmlTagsCinema(diaM[1]), 10);
+      const mesRaw = stripHtmlTagsCinema(mesM[1])
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\./g, '')
+        .trim();
+      const mon = MONTH_MAP[mesRaw] || MONTH_MAP[mesRaw.slice(0, 3)];
+      if (dayNum >= 1 && dayNum <= 31 && mon) {
+        let yr = refYear;
+        if (mon < refMonth - 2) yr += 1;
+        else if (mon > refMonth + 9) yr -= 1;
+        dateStr = `${yr}-${String(mon).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      }
+    }
+    if (!dateStr) continue;
+
+    const timeM = horaM ? /\b([012]?\d:[0-5]\d)\b/.exec(stripHtmlTagsCinema(horaM[1])) : null;
+    const time = timeM ? timeM[1].padStart(5, '0') : '18:00';
+
+    // 2. Extract title & film detail link
+    const h2LinkM = /<h2[^>]*>\s*<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>\s*<\/h2>/i.exec(block);
+    const h2PlainM = !h2LinkM ? /<h2[^>]*>([\s\S]*?)<\/h2>/i.exec(block) : null;
+    const rawTitle = h2LinkM
+      ? stripHtmlTagsCinema(h2LinkM[2])
+      : h2PlainM
+        ? stripHtmlTagsCinema(h2PlainM[1])
+        : '';
+    const title = normalizeAllCapsCinemaLabel(rawTitle);
+    if (!title || title.length < 2) continue;
+
+    const detailUrl = h2LinkM
+      ? resolveAbsoluteCinemaUrl(decodeHtmlEntitiesCinema(h2LinkM[1]), finalUrl)
+      : finalUrl;
+    const ticketUrl = buyUrl || detailUrl || cinema.url;
+
+    // 3. Extract poster image (encode accented Spanish filenames safely)
+    const fotoM = /<div[^>]*class=["']foto-peli["'][^>]*>[\s\S]*?<img[^>]+src=["']([^"']+)["']/i.exec(block);
+    let posterUrl = fotoM ? resolveAbsoluteCinemaUrl(decodeHtmlEntitiesCinema(fotoM[1]), finalUrl) : null;
+    if (posterUrl) {
+      try {
+        posterUrl = encodeURI(decodeURI(posterUrl));
+      } catch {
+        posterUrl = encodeURI(posterUrl);
+      }
+    }
+
+    // 4. Extract cycle name
+    const cicloM = /<span[^>]*class=["']extra-ciclo["'][^>]*>([\s\S]*?)<\/span>/i.exec(block);
+    const cycleName = cicloM ? normalizeAllCapsCinemaLabel(stripHtmlTagsCinema(cicloM[1])) : 'La Filmoteca';
+
+    // 5. Extract technical metadata line (director, year, VOS, runtime, format)
+    const textosM = /<div[^>]*class=["']textos-peli["'][^>]*>[\s\S]*?<p(?:\s[^>]*)?>([\s\S]*?)<\/p>/i.exec(block);
+    const metaHtml = textosM ? textosM[1] : '';
+    const metaText = stripHtmlTagsCinema(metaHtml);
+
+    const dirM = /<strong[^>]*>([\s\S]*?)<\/strong>/i.exec(metaHtml);
+    const director = dirM ? stripHtmlTagsCinema(dirM[1]) : undefined;
+
+    const durM = /\b(\d{2,3})\s*['’′]/.exec(metaText) || /\b(\d{2,3})\s*min\b/i.exec(metaText);
+    const durationMinutes = durM ? parseInt(durM[1], 10) : undefined;
+
+    const isVOSE = /\bV\.?O\.?S\.?E?\.?\b|\bVOS\s+(?:CASTELLANO|VALENCIANO|ESPA[ÑN]OL|CATAL[AÀ])/i.test(metaText);
+
+    let format = null;
+    if (/\b35\s*mm\b/i.test(metaText)) format = '35mm';
+    else if (/\b16\s*mm\b/i.test(metaText)) format = '16mm';
+    else if (/\b70\s*mm\b/i.test(metaText)) format = '70mm';
+    else if (/\bDCP\b/i.test(metaText)) format = 'DCP';
+
+    // 6. Optional presentation note (<p class="azul">)
+    const noteM = /<p[^>]*class=["'][^"']*azul[^"']*["'][^>]*>([\s\S]*?)<\/p>/i.exec(block);
+    const noteText = noteM ? stripHtmlTagsCinema(noteM[1]) : '';
+    const synopsisParts = [];
+    if (noteText) synopsisParts.push(noteText);
+    if (metaText) synopsisParts.push(metaText);
+
+    entries.push({
+      title,
+      date: dateStr,
+      eventType: 'especial',
+      cycleName: cycleName || 'La Filmoteca',
+      director,
+      durationMinutes,
+      synopsis: synopsisParts.join(' · ') || undefined,
+      posterUrl,
+      sourceUrl: detailUrl || cinema.url,
+      ticketUrl,
+      isVOSE,
+      sessions: [
+        {
+          time,
+          isVOSE,
+          format,
+          ticketUrl,
+        },
+      ],
+    });
+  }
+
+  return entries;
+}
+
+/**
+ * Parses SensaCine runtime strings like "2h 38min", "1h 54min", "55min" into integer minutes.
+ */
+function parseSensaCineRuntimeMinutes(raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return raw > 400 ? Math.round(raw / 60) : Math.round(raw);
+  }
+  const s = String(raw || '').trim();
+  if (!s) return undefined;
+  let total = 0;
+  const hM = /(\d+)\s*h/i.exec(s);
+  const mM = /(\d+)\s*min/i.exec(s);
+  if (hM) total += parseInt(hM[1], 10) * 60;
+  if (mM) total += parseInt(mM[1], 10);
+  if (total > 0 && total < 600) return total;
+  const plainM = /^(\d{2,3})$/.exec(s);
+  return plainM ? parseInt(plainM[1], 10) : undefined;
+}
+
+function normalizeSensaCineAgeRating(releases) {
+  if (!Array.isArray(releases)) return undefined;
+  for (const rel of releases) {
+    const code = String(rel?.certificate?.code || '').trim().toUpperCase();
+    if (!code) continue;
+    if (/^\d{1,2}$/.test(code)) return `+${code}`;
+    if (code === 'TP' || code === 'APTA' || code === 'A') return 'TP';
+    return code;
+  }
+  return undefined;
+}
+
+function extractSensaCineFormat(showtime) {
+  const bag = [
+    ...(Array.isArray(showtime?.experience) ? showtime.experience : []),
+    ...(Array.isArray(showtime?.projection) ? showtime.projection : []),
+    ...(Array.isArray(showtime?.picture) ? showtime.picture : []),
+    ...(Array.isArray(showtime?.sound) ? showtime.sound : []),
+    ...(Array.isArray(showtime?.tags) ? showtime.tags : []),
+  ]
+    .join(' ')
+    .toUpperCase();
+
+  if (/\bIMAX\b/.test(bag)) return 'IMAX';
+  if (/\b4DX\b/.test(bag)) return '4DX';
+  if (/\bSCREENX\b/.test(bag)) return 'ScreenX';
+  if (/\bISENSE\b/.test(bag)) return 'iSense';
+  if (/DOLBY[\s_]*ATMOS|\bATMOS\b/.test(bag)) return 'Atmos';
+  if (/\bF_3D\b|\b3D\b/.test(bag)) return '3D';
+  return '2D';
+}
+
+function extractSensaCineDirectTicketUrl(showtime, fallbackUrl) {
+  const list = showtime?.data?.ticketing;
+  if (!Array.isArray(list) || list.length === 0) return fallbackUrl;
+  const directDefault = list.find(
+    (tk) => tk?.provider === 'default' && Array.isArray(tk.urls) && tk.urls[0] && /^https?:\/\//i.test(tk.urls[0])
+  );
+  if (directDefault) return directDefault.urls[0];
+  const nonRelay = list.find(
+    (tk) =>
+      Array.isArray(tk?.urls) &&
+      tk.urls[0] &&
+      /^https?:\/\//i.test(tk.urls[0]) &&
+      !/relay\.mvtx\.us/i.test(tk.urls[0])
+  );
+  if (nonRelay) return nonRelay.urls[0];
+  return fallbackUrl;
+}
+
+function addDaysToIsoDate(isoDate, deltaDays) {
+  const [y, m, d] = isoDate.split('-').map((n) => parseInt(n, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Direct JSON API scraper via SensaCine showtimes endpoint for major chains that block
+ * datacenter IPs on their consumer frontends (Yelmo Campanar, Ocine Aqua, Kinépolis, Cinesa Bonaire).
+ * Returns official direct seat-booking deep links (provider="default"), high-res posters,
+ * exact VOSE flags, formats, directors, age ratings, runtimes, and 7-day rolling showtimes.
+ */
+async function scrapeSensaCineCinemaVenue(cinema, todayISO, updatedAtISO) {
+  const theaterId = cinema.sensaCineTheaterId;
+  if (!theaterId) return [];
+
+  const headers = {
+    'User-Agent': CINEMA_USER_AGENT,
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+    'X-Requested-With': 'XMLHttpRequest',
+  };
+
+  const fetchJson = async (url) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const res = await fetch(url, { headers, signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // Accumulate sessions per (movieId|date) so pagination & multi-day queries deduplicate cleanly
+  const byMovieDate = new Map();
+  const targetDates = Array.from({ length: 7 }, (_, i) => addDaysToIsoDate(todayISO, i));
+
+  // Process dates in small batches of 2 to stay polite and fast
+  for (let i = 0; i < targetDates.length; i += 2) {
+    const dateBatch = targetDates.slice(i, i + 2);
+    await Promise.allSettled(
+      dateBatch.map(async (targetDate) => {
+        const baseUrl = `https://www.sensacine.com/_/showtimes/theater-${theaterId}/d-${targetDate}/`;
+        let firstPage;
+        try {
+          firstPage = await fetchJson(baseUrl);
+        } catch (err) {
+          console.warn(`[Cine SensaCine] ${cinema.id} ${targetDate} p1: ${err.message}`);
+          return;
+        }
+        const totalPages = Math.min(5, Number(firstPage?.pagination?.totalPages || 1));
+        const pages = [firstPage];
+
+        for (let p = 2; p <= totalPages; p += 1) {
+          try {
+            const nextPage = await fetchJson(`${baseUrl}p-${p}/`);
+            if (nextPage) pages.push(nextPage);
+          } catch (err) {
+            console.warn(`[Cine SensaCine] ${cinema.id} ${targetDate} p${p}: ${err.message}`);
+          }
+        }
+
+        for (const pageData of pages) {
+          const results = Array.isArray(pageData?.results) ? pageData.results : [];
+          for (const item of results) {
+            const movie = item?.movie;
+            const showtimesObj = item?.showtimes;
+            if (!movie?.title || !showtimesObj || typeof showtimesObj !== 'object') continue;
+
+            const title = String(movie.title).replace(/\s+/g, ' ').trim();
+            if (!title) continue;
+
+            const originalTitle = movie.originalTitle
+              ? String(movie.originalTitle).replace(/\s+/g, ' ').trim()
+              : undefined;
+            const posterUrl = movie.poster?.url || undefined;
+            const synopsisRaw = movie.synopsisFull || movie.synopsis || '';
+            const synopsis = stripHtmlTagsCinema(synopsisRaw) || undefined;
+            const durationMinutes = parseSensaCineRuntimeMinutes(movie.runtime);
+            const ageRating = normalizeSensaCineAgeRating(movie.releases);
+            const director = Array.isArray(movie.credits)
+              ? movie.credits
+                  .filter((c) => String(c?.position?.name || '').toUpperCase() === 'DIRECTOR')
+                  .map((c) => [c?.person?.firstName, c?.person?.lastName].filter(Boolean).join(' ').trim())
+                  .filter(Boolean)
+                  .slice(0, 3)
+                  .join(', ') || undefined
+              : undefined;
+
+            const movieKeyBase = String(movie.internalId || movie.id || title.toLowerCase());
+
+            for (const [bucketKey, stList] of Object.entries(showtimesObj)) {
+              if (!Array.isArray(stList) || stList.length === 0) continue;
+              const bucketIsOriginal = /^original/i.test(bucketKey);
+
+              for (const st of stList) {
+                const startsAt = String(st?.startsAt || '');
+                const dtM = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(startsAt);
+                if (!dtM) continue;
+                const sessionDate = dtM[1];
+                const sessionTime = dtM[2];
+
+                // Ignore stale/out-of-window dates outside targetDate
+                if (sessionDate !== targetDate) continue;
+
+                const tags = Array.isArray(st?.tags) ? st.tags : [];
+                const isVOSE =
+                  bucketIsOriginal ||
+                  String(st?.diffusionVersion || '').toUpperCase() === 'ORIGINAL' ||
+                  tags.some((tg) => /Version\.Original|Subtitle\.Spanish/i.test(String(tg)));
+
+                const format = extractSensaCineFormat(st);
+                const ticketUrl = extractSensaCineDirectTicketUrl(st, cinema.url);
+
+                const mapKey = `${movieKeyBase}|${sessionDate}`;
+                if (!byMovieDate.has(mapKey)) {
+                  byMovieDate.set(mapKey, {
+                    title,
+                    originalTitle,
+                    date: sessionDate,
+                    director,
+                    durationMinutes,
+                    ageRating,
+                    synopsis,
+                    posterUrl,
+                    sourceUrl: ticketUrl || cinema.url,
+                    ticketUrl: ticketUrl || cinema.url,
+                    sessions: [],
+                  });
+                }
+
+                const entry = byMovieDate.get(mapKey);
+                entry.sessions.push({
+                  time: sessionTime,
+                  isVOSE,
+                  format,
+                  ticketUrl,
+                });
+                if (entry.ticketUrl === cinema.url && ticketUrl && ticketUrl !== cinema.url) {
+                  entry.ticketUrl = ticketUrl;
+                  entry.sourceUrl = ticketUrl;
+                }
+              }
+            }
+          }
+        }
+      })
+    );
+  }
+
+  return Array.from(byMovieDate.values())
+    .map((entry) => buildCinemaEventRecord(cinema, entry, todayISO, updatedAtISO))
+    .filter(Boolean);
+}
+
+/**
  * Recursively extracts cinema movie + showtime entries from arbitrary JSON API payloads
  * (used by Tier 2 chains: Yelmo, Cinesa, Kinépolis, Ocine, and Tier 3 Flutter Web Cines ABC).
  */
@@ -4303,7 +4685,28 @@ async function scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO) {
     }
   }
 
-  // 3. Secondary / HTML URLs (e.g. Cines Lys special cycles calendar, La Filmoteca IVC)
+  // 2b. La Filmoteca (IVC) dedicated HTML pipeline (try Spanish primary first, Valencian fallback)
+  if (cinema.id === 'la-filmoteca') {
+    const filmotecaUrls = [cinema.url, ...(cinema.secondaryUrls || [])];
+    for (const targetUrl of filmotecaUrls) {
+      try {
+        const { html, finalUrl } = await fetchCinemaPage(targetUrl, 15000);
+        const parsed = parseLaFilmotecaHtml(html, finalUrl, cinema, todayISO);
+        const built = parsed
+          .map((r) => buildCinemaEventRecord(cinema, r, todayISO, updatedAtISO))
+          .filter(Boolean);
+        if (built.length > 0) {
+          results.push(...built);
+          return results;
+        }
+      } catch (err) {
+        console.warn(`[Cine Filmoteca] ${cinema.id} (${targetUrl}): ${err.message}`);
+      }
+    }
+    return results;
+  }
+
+  // 3. Secondary / HTML URLs (e.g. Cines Lys special cycles calendar)
   const urlsToFetch = cinema.reservaEntradasSlug
     ? cinema.secondaryUrls || []
     : [cinema.url, ...(cinema.secondaryUrls || [])];
@@ -4333,11 +4736,24 @@ async function scrapeTier1CinemaVenue(cinema, todayISO, updatedAtISO) {
 }
 
 /**
- * Tier 2 & Tier 3 Playwright Scraper with Network JSON Interception + Blocked Images/Fonts
- * - Tier 2: Yelmo Campanar (+ VOSE feed), Cinesa LUXE Bonaire, Kinépolis València, Ocine Premium Aqua
- * - Tier 3: Cines ABC Park, Cines ABC El Saler, Cines ABC Gran Turia (Flutter Web API interception)
+ * Tier 2 & Tier 3 Cinema Scraper:
+ * - Primary: SensaCine JSON showtimes API (bypasses Cloudflare/CloudFront 403 on datacenter IPs
+ *   for Yelmo Campanar, Ocine Premium Aqua, Kinépolis València, and Cinesa LUXE Bonaire,
+ *   returning official direct seat-booking deep links).
+ * - Fallback: Playwright with Network JSON Interception + Blocked Images/Fonts.
  */
 async function scrapePlaywrightCinemaVenue(browser, cinema, todayISO, updatedAtISO) {
+  if (cinema.sensaCineTheaterId) {
+    try {
+      const apiRecords = await scrapeSensaCineCinemaVenue(cinema, todayISO, updatedAtISO);
+      if (apiRecords.length > 0) {
+        return apiRecords;
+      }
+    } catch (err) {
+      console.warn(`[Cine SensaCine] ${cinema.id} failed (${err.message}); falling back to Playwright`);
+    }
+  }
+
   const urls = [{ url: cinema.url, forceVOSE: Boolean(cinema.defaultVOSE) }];
   if (cinema.voseUrl) {
     urls.push({ url: cinema.voseUrl, forceVOSE: true });
@@ -4439,7 +4855,8 @@ function loadPreviousCinemaCacheByVenue(outPath, todayISO) {
 }
 
 async function runCinemaVenueIsolated(cinema, scraperPromiseFn, previousCacheByVenue) {
-  const timeoutMs = cinema.reservaEntradasSlug ? 45000 : cinema.tier === 1 ? 20000 : 30000;
+  const timeoutMs =
+    cinema.reservaEntradasSlug || cinema.sensaCineTheaterId ? 45000 : cinema.tier === 1 ? 20000 : 30000;
   try {
     const result = await Promise.race([
       scraperPromiseFn(),
